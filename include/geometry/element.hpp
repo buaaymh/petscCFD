@@ -40,6 +40,8 @@ class Edge
   int I() const { return id_; }
   const Node& Head() const { return head_; }
   const Node& Tail() const { return tail_; }
+  Real Nx() const { return (tail_(1) - head_(1)) / measure_; }
+  Real Ny() const { return (head_(0) - tail_(0)) / measure_; }
   Node Center() const { return (head_ + tail_) * 0.5; }
   Real Measure() const { return measure_; }
   Real Distance() const { return distance_; }
@@ -99,8 +101,8 @@ class Cell<1>
  public:
   // Types:
   static constexpr int numCoef = 2;
-  using Vector = Eigen::Matrix<Real, 2, 1>;
-  using BasisF = Eigen::Matrix<Real, 2, 2>;
+  using Vector = Eigen::Matrix<float, 2, 1>;
+  using BasisF = Eigen::Matrix<float, 2, 2>;
   // For Triangle
   Cell(int id, const Node& a, const Node& b, const Node& c) : id_(id) {
     measure_ = GetMeasure(a, b, c);
@@ -161,6 +163,12 @@ class Cell<1>
     result << F_0_0_0(coord), F_1_0_0(coord);
     return result;
   }
+  BasisF GetFuncTable(const Real* coord, const Real* normal) const {
+    BasisF mat = BasisF::Zero();
+    mat(0, 0) = F_0_0_0(coord), mat(0, 1) = F_0_N_1(coord, normal);
+    mat(1, 0) = F_1_0_0(coord), mat(1, 1) = F_1_N_1(coord, normal);
+    return mat;
+  }
 
  private:
   int id_;
@@ -175,8 +183,8 @@ class Cell<2> : public Cell<1>
  public:
   // Types:
   static constexpr int numCoef = 5;
-  using Vector = Eigen::Matrix<Real, 5, 1>;
-  using BasisF = Eigen::Matrix<Real, 5, 3>;
+  using Vector = Eigen::Matrix<float, 5, 1>;
+  using BasisF = Eigen::Matrix<float, 5, 3>;
   Cell(int id, const Node& a, const Node& b, const Node& c) : Cell<1>(id, a, b, c) {
     xx_ = IntegrateTri([&](Real* coord) { return Pow(F_0_0_0(coord), 2);}, a, b, c) / Measure();
     xy_ = IntegrateTri([&](Real* coord) { return F_0_0_0(coord)*F_1_0_0(coord);}, a, b, c) / Measure();
@@ -225,6 +233,15 @@ class Cell<2> : public Cell<1>
     result(4) = Pow(result(1), 2) - YY();
     return result;
   }
+  BasisF GetFuncTable(const Real* coord, const Real* normal) const {
+    BasisF mat = BasisF::Zero();
+    mat(0, 0) = F_0_0_0(coord), mat(0, 1) = F_0_N_1(coord, normal);
+    mat(1, 0) = F_1_0_0(coord), mat(1, 1) = F_1_N_1(coord, normal);
+    mat(2, 0) = F_2_0_0(coord), mat(2, 1) = F_2_N_1(coord, normal), mat(2, 2) = F_2_N_2(coord, normal);
+    mat(3, 0) = F_3_0_0(coord), mat(3, 1) = F_3_N_1(coord, normal), mat(3, 2) = F_3_N_2(coord, normal);
+    mat(4, 0) = F_4_0_0(coord), mat(4, 1) = F_4_N_1(coord, normal), mat(4, 2) = F_4_N_2(coord, normal);
+    return mat;
+  }
   template<class Integrand>
   static Real IntegrateTri(Integrand&& func,
       const Node& a, const Node& b, const Node& c)
@@ -271,8 +288,8 @@ class Cell<3> : public Cell<2>
  public:
   // Types:
   static constexpr int numCoef = 9;
-  using Vector = Eigen::Matrix<Real, 9, 1>;
-  using BasisF = Eigen::Matrix<Real, 9, 4>;
+  using Vector = Eigen::Matrix<float, 9, 1>;
+  using BasisF = Eigen::Matrix<float, 9, 4>;
   Cell(int id, const Node& a, const Node& b, const Node& c) : Cell<2>(id, a, b, c) {
     xxx_ = IntegrateTri([&](const Real* coord) { return Pow(F_0_0_0(coord), 3);}, a, b, c) / Measure();
     xxy_ = IntegrateTri([&](const Real* coord) { return Pow(F_0_0_0(coord), 2)*F_1_0_0(coord);}, a, b, c) / Measure();
@@ -347,6 +364,22 @@ class Cell<3> : public Cell<2>
     result(3) -= XY();
     result(4) -= YY();
     return result;
+  }
+  BasisF GetFuncTable(const Real* coord, const Real* normal) const {
+    BasisF mat = BasisF::Zero();
+    // One Degree:
+    mat(0, 0) = F_0_0_0(coord), mat(0, 1) = F_0_N_1(coord, normal);
+    mat(1, 0) = F_1_0_0(coord), mat(1, 1) = F_1_N_1(coord, normal);
+    // Two Degree:
+    mat(2, 0) = F_2_0_0(coord), mat(2, 1) = F_2_N_1(coord, normal), mat(2, 2) = F_2_N_2(coord, normal);
+    mat(3, 0) = F_3_0_0(coord), mat(3, 1) = F_3_N_1(coord, normal), mat(3, 2) = F_3_N_2(coord, normal);
+    mat(4, 0) = F_4_0_0(coord), mat(4, 1) = F_4_N_1(coord, normal), mat(4, 2) = F_4_N_2(coord, normal);
+    // Three Degree:
+    mat(5, 0) = F_5_0_0(coord), mat(5, 1) = F_5_N_1(coord, normal), mat(5, 2) = F_5_N_2(coord, normal), mat(5, 3) = F_5_N_3(coord, normal);
+    mat(6, 0) = F_6_0_0(coord), mat(6, 1) = F_6_N_1(coord, normal), mat(6, 2) = F_6_N_2(coord, normal), mat(6, 3) = F_6_N_3(coord, normal);
+    mat(7, 0) = F_7_0_0(coord), mat(7, 1) = F_7_N_1(coord, normal), mat(7, 2) = F_7_N_2(coord, normal), mat(7, 3) = F_7_N_3(coord, normal);
+    mat(8, 0) = F_8_0_0(coord), mat(8, 1) = F_8_N_1(coord, normal), mat(8, 2) = F_8_N_2(coord, normal), mat(8, 3) = F_8_N_3(coord, normal);
+    return mat;
   }
   template<class Integrand>
   static Real IntegrateTri(Integrand&& func,

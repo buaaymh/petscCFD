@@ -33,7 +33,7 @@ using namespace std;
 
 struct User {
   int           order = 2;
-  string        filename = "box.msh";
+  string        filename = "medium.msh";
   string        model = "box";
   Real          dt = 1.0, tEnd = 1.0;
   int           output_rate = 1;
@@ -50,6 +50,7 @@ class Advection {
     solver.mesh.ReadMeshFile(dir + user_->filename);
     solver.SetupDataLayout();
     solver.SetBoundaryConditions(&bc_);
+    solver.InitializeDS();
   }
  private:
   BC bc_;
@@ -60,7 +61,6 @@ int main( int argc,char **args )
 {
   User           user;
   PetscMPIInt    rank;
-  int            order = 2;
 
   // Initialize program
   PetscInitialize(&argc, &args, (char*)0, help);

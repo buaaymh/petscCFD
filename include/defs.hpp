@@ -63,17 +63,21 @@
 
 // function macros ************************************************************
 
-static constexpr Real Sign(Real a)
-{
+static constexpr Real Sign(Real a) {
   if (a < 0) { return -1; }
   else if (a > 0) { return 1;}
   else { return 0; }
 }
 
-static constexpr Real Minmod(Real a, Real b)
-{
+static constexpr Real Minmod(Real a, Real b) {
   if (a * b <= 0) { return 0; }
   else { return Sign(a) * std::min(Abs(a), Abs(b)); }
+}
+
+static constexpr Real Factorial(int p) {
+  int fac = 1;
+  for (int i = 1; i <= p; ++i) { fac *= i; }
+  return Real(fac);
 }
 
 #endif // INCLUDE_DSFS_HPP_

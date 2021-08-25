@@ -51,7 +51,12 @@ class Solver
     bndConds.PreProcess();
     mesh.UpdateCellNeighbs(bndConds.types);
   }
-  void InitializeDS();
+  void InitializeDS() {
+    vrApproach.AllocatorMats(mesh);
+    vrApproach.CalculateBmats(mesh.interior, BdCondType::Interior);
+    vrApproach.CalculateAinvs(mesh);
+    vrApproach.CalculateBlockC(mesh);
+  }
   void InitSolution(void* func);
 
 
