@@ -31,23 +31,29 @@ using namespace std;
 /// @return       EXIT_SUCCESS or an error code
 ///
 
+struct User {
+  int           order = 2;
+  string        filename = "box.msh";
+  string        model = "box";
+  Real          dt = 1.0, tEnd = 1.0;
+  int           output_rate = 1;
+};
+
 template<int kOrder>
 class Advection {
  public:
-  explicit Advection(User* user) : user_(user) {};
+  explicit Advection(const User* user) : user_(user) {};
   void Run()
   {
     const string dir{TEST_DATA_DIR};
     auto solver = Solver<kOrder, Linear>();
-    solver.ReadMesh(dir+user_->meshfile);
+    solver.mesh.ReadMeshFile(dir + user_->filename);
     solver.SetupDataLayout();
-    solver.ConstructMesh();
-    solver.SetBoundaryConditions(user_);
-    // solver.InitializeTS(user_);
-    // solver.WriteSolution(user_);
+    solver.SetBoundaryConditions(&bc_);
   }
- protected:
-  User* user_;
+ private:
+  BC bc_;
+  const User* user_;
 };
 
 int main( int argc,char **args )
@@ -55,25 +61,26 @@ int main( int argc,char **args )
   User           user;
   PetscMPIInt    rank;
   int            order = 2;
+
   // Initialize program
   PetscInitialize(&argc, &args, (char*)0, help);
   MPI_Comm_rank(PETSC_COMM_WORLD, &rank);
   if (rank == 0)
   {
     cout << endl
-        << " *************************************************" << endl
-        << " *                                               *" << endl
-        << " *       2-D FLOW ON UNSTRUCTURED BOX MESH       *" << endl
-        << " *                                               *" << endl
-        << " *         RKFV FOR UNSTEADY EULER FLOWS         *" << endl
-        << " *                                               *" << endl
-        << " *     (c) Minghao Yang, CFD Solver project      *" << endl
-        << " *                                               *" << endl
-        << " *          Version 1.0 from 08/15/2021          *" << endl
-        << " *                                               *" << endl
-        << " *************************************************" << endl << endl;
+      << " *************************************************" << endl
+      << " *                                               *" << endl
+      << " *       2-D FLOW ON UNSTRUCTURED BOX MESH       *" << endl
+      << " *                                               *" << endl
+      << " *         RKFV FOR UNSTEADY EULER FLOWS         *" << endl
+      << " *                                               *" << endl
+      << " *     (c) Minghao Yang, CFD Solver project      *" << endl
+      << " *                                               *" << endl
+      << " *          Version 1.0 from 08/15/2021          *" << endl
+      << " *                                               *" << endl
+      << " *************************************************" << endl << endl;
   }
-  if(order == 2)
+  if(user.order == 2)
   {
     auto model = Advection<2>(&user);
     model.Run();

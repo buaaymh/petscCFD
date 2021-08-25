@@ -122,6 +122,8 @@ class Cell<1>
   static constexpr int Order() { return 1; }
   virtual int nCorner() const = 0;
   virtual int Edge(int i) const = 0;
+  virtual int Adjc(int i) const = 0;
+  virtual void SetAdjc(int i, int id) = 0;
   Real DxInv() const { return dx_inv_; }
   Real DyInv() const { return dy_inv_; }
   const Node& Center() const { return center_; }
@@ -387,6 +389,8 @@ class Ghost : public Cell<kOrder>
   Ghost(const Cell<kOrder>& cell) : Cell<kOrder>(cell) {}
   int nCorner() const override {}
   int Edge(int i) const override {}
+  int Adjc(int i) const override {}
+  void SetAdjc(int i, int id) override {}
 };
 template <int kOrder>
 class Triangle : public Cell<kOrder>
@@ -396,7 +400,10 @@ class Triangle : public Cell<kOrder>
   Triangle(int id, const Node& a, const Node& b, const Node& c) : Cell<kOrder>{id, a, b, c} {}
   int nCorner() const override { return 3; }
   int Edge(int i) const override { return edge[i]; }
+  int Adjc(int i) const override { return adjc[i]; }
+  void SetAdjc(int i, int id) override { adjc[i] = id;}
   array<int, 3> edge;
+  array<int, 3> adjc;
 
   Triangle(const Triangle<kOrder>&) = default;            // override default copy constructor
   Triangle<kOrder>& operator = (const Triangle<kOrder>&); // and assignment operator
@@ -411,7 +418,10 @@ class Quadrangle : public Cell<kOrder>
       Cell<kOrder>{id, a, b, c, d} {}
   int nCorner() const override { return 4; }
   int Edge(int i) const override { return edge[i]; }
+  int Adjc(int i) const override { return adjc[i]; }
+  void SetAdjc(int i, int id) override { adjc[i] = id;}
   array<int, 4> edge;
+  array<int, 4> adjc;
 
   Quadrangle(const Quadrangle<kOrder>&) = default;            // override default copy constructor
   Quadrangle<kOrder>& operator = (const Quadrangle<kOrder>&); // and assignment operator

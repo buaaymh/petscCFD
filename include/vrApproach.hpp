@@ -25,12 +25,36 @@ class VrApproach
  public:
   using Matrix = Eigen::Matrix<Real, nCoef, nCoef>;
   using Column = Eigen::Matrix<Real, nCoef, 1>;
-  using MeshType = Mesh<2, kOrder>;
+  using MeshType = Mesh<kOrder>;
   using BndCondsType = BndConds<MeshType, Physics>;
   typedef struct T_VrBlock {
     Matrix C_mat;
     Column b_sub;
   } VrBlock;
+  DM            dmCoef;
+  PetscSF       sfCoef;
+  void SetCoefLayout(DM dm) {
+    PetscSection    section;
+    int             cStart, cEnd;
+    int             nroots, nleaves;
+    
+    DMClone(dm, &dmCoef);
+    PetscSectionCreate(PetscObjectComm((PetscObject)dm), &section);
+    DMPlexGetHeightStratum(dmCoef, 0, &cStart, &cEnd);
+    PetscSectionSetChart(section, cStart, cEnd);
+    for (int c = cStart; c < cEnd; ++c)
+      PetscSectionSetDof(section, c, nCoef * Physics::nEqual);
+    PetscSectionSetUp(section);
+    DMSetLocalSection(dmCoef, section);
+    PetscSectionDestroy(&section);
+    DMGetSectionSF(dmCoef, &sfCoef);
+    /* Build the ghosted start forest for data */
+    DMGetSectionSF(dmCoef, &sfCoef);
+    PetscSFGetGraph(sfCoef, &nroots, &nleaves, nullptr, nullptr);
+    int selected[nleaves-nroots];
+    for (int i = nroots; i < nleaves; ++i) { selected[i-nroots] = i; }
+    PetscSFCreateEmbeddedLeafSF(sfCoef, nleaves-nroots, selected, &sfCoef);
+  }
 
   vector<Matrix> A_inv;
   vector<Matrix> B_mat;

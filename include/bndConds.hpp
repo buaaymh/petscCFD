@@ -16,7 +16,9 @@
 #include "defs.hpp"
 #include <set>
 #include <algorithm>
+#include <iostream>
 #include "geometry/mesh.hpp"
+#include "solver.hpp"
 
 using namespace std;
 
@@ -24,13 +26,23 @@ using namespace std;
 enum class BdCondType { Interior, Periodic, InFlow, OutFlow,
                         FarField, InviscWall, Symmetry };
 
+struct BC {
+  // Periodic Boundary
+  Real                        lower[2] = {0.0, 0.0}, upper[2] = {1.0, 1.0};
+  // FarField Boundary
+  Real                        refVal[1] = {1.0};
+  // InFlow Boundary
+  static void InFlow(Real t, const Real* coord, Real* Vals) {}
+};
+
 template<class Mesh, class Physics>
 struct Bd {
   using Edge = typename Mesh::EdgeType;
   using Cell = typename Mesh::CellType;
+  using Set = typename Mesh::EdgeSet;
   Bd() = default;
   virtual void PreProcess() = 0;
-  set<Edge*> edge;
+  Set edge;
 };
 template<class Mesh, class Physics>
 struct PeriodicBd : public Bd<Mesh,Physics> {
@@ -189,6 +201,62 @@ struct BndConds {
   void PreProcess() {
     for (auto& [type, bd] : bdGroup) {
       bd->PreProcess();
+    }
+  }
+  void InitializeBndConds(DM dm, const BC* bc) {
+    PetscMPIInt       rank;
+    IS                bdTypeIS;
+    DMLabel           label;
+    const int         *types;
+    int               numTypes;
+    MPI_Comm_rank(PETSC_COMM_WORLD, &rank);
+    DMGetLabel(dm, "Face Sets", &label);
+    DMGetLabelIdIS(dm, "Face Sets", &bdTypeIS);
+    ISGetLocalSize(bdTypeIS, &numTypes);
+    ISGetIndices(bdTypeIS, &types);
+    PetscPrintf(PETSC_COMM_SELF, "**********Processor(%D)**********\n", rank);
+    for (int i = 0; i < numTypes; ++i) {
+      switch (BdCondType(types[i]))
+      {
+      case BdCondType::Periodic:
+        bdGroup[types[i]] = make_unique<PeriodicBd<Mesh,Physics>>(bc->lower, bc->upper);
+        PetscPrintf(PETSC_COMM_SELF, "Boundary(%D) <Periodic>\n", types[i]);
+        break;
+      case BdCondType::InFlow:
+        bdGroup[types[i]] = make_unique<InFlowBd<Mesh,Physics>>(bc->InFlow);
+        PetscPrintf(PETSC_COMM_SELF, "Boundary(%D) <InFlow>\n", types[i]);
+        break;
+      case BdCondType::OutFlow:
+        bdGroup[types[i]] = make_unique<OutFlowBd<Mesh,Physics>>();
+        PetscPrintf(PETSC_COMM_SELF, "Boundary(%D) <OutFlow>\n", types[i]);
+        break;
+      case BdCondType::FarField:
+        bdGroup[types[i]] = make_unique<FarFieldBd<Mesh,Physics>>(bc->refVal, 1);
+        PetscPrintf(PETSC_COMM_SELF, "Boundary(%D) <FarField>\n", types[i]);
+        break;
+      default:
+        break;
+      }
+    }
+    PetscPrintf(PETSC_COMM_SELF, "******************************\n");
+  }
+  void ClassifyEdges(Mesh& mesh) {
+    int               eStart, eEnd;
+    DMPlexGetDepthStratum(mesh.dm, 1, &eStart, &eEnd); /* edges */
+    for (int i = 0; i < mesh.NumLocalCells(); ++i) {
+      for(int j = 0; j < mesh.cell[i]->nCorner(); ++j) {
+        int e = mesh.cell[i]->Edge(j);
+        if (mesh.edge[e]->left == nullptr || mesh.edge[e]->right == nullptr) {
+          int type;
+          DMGetLabelValue(mesh.dm, "Face Sets", e+eStart, &type);
+          types.emplace(e, type);
+          bdGroup[type]->edge.insert(mesh.edge[e].get());
+        } else {
+          auto dist = (mesh.edge[e]->left->Center() - mesh.edge[e]->right->Center()).norm();
+          mesh.edge[e]->SetDist(dist);
+          mesh.interior.insert(mesh.edge[e].get());
+        }
+      }
     }
   }
   unordered_map<int, int> types;
