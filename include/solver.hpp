@@ -54,6 +54,9 @@ class Solver
   void InitializeDS() {
     vrApproach.AllocatorMats(mesh);
     vrApproach.CalculateBmats(mesh.interior, BdCondType::Interior);
+    for (auto& [type, bd] : bndConds.bdGroup) {
+      vrApproach.CalculateBmats(bd->edge, BdCondType(type));
+    }
     vrApproach.CalculateAinvs(mesh);
     vrApproach.CalculateBlockC(mesh);
   }

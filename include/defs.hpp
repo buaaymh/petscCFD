@@ -80,4 +80,22 @@ static constexpr Real Factorial(int p) {
   return Real(fac);
 }
 
+template <int kOrder>
+struct Dp {
+  static void GetDpArrayInterior(Real distance, Real* dp) {
+    for (int i = 0; i <= kOrder; ++i) {
+      dp[i] = Pow(distance, 2*i-1) / Pow(Factorial(i), 2);
+    }
+  }
+  static void GetDpArrayP0(Real distance, Real* dp) {
+    dp[0] = 1 / distance;
+    for (int i = 1; i <= kOrder; ++i) { dp[i] = 0; }
+  }
+  static void GetDpArraySymmetry(Real distance, Real* dp) {
+    for (int i = 0; i <= kOrder; ++i) {
+      dp[i] = Pow(distance, 2*i-1) * Pow(-1,i) / Pow(Factorial(i), 2);
+    }
+  }
+};
+
 #endif // INCLUDE_DSFS_HPP_

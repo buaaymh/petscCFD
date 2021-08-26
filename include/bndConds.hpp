@@ -137,7 +137,7 @@ struct OutFlowBd : public Bd<Mesh,Physics> {
 template<class Mesh, class Physics>
 struct InFlowBd : public Bd<Mesh,Physics> {
   using Value = Eigen::Matrix<Real, Physics::nEqual, 1>;
-  using Coefs = Eigen::Matrix<Real, Mesh::nCoef*Physics::nEqual, 1>;
+  using Coefs = Eigen::Matrix<float, Mesh::nCoef * Physics::nEqual, 1>;
   InFlowBd(void(*func) (Real, const Real*, Real*)) : Bd<Mesh,Physics>(), func_(func) {}
   void PreProcess() override {
     for (auto& e : Bd<Mesh,Physics>::edge) {

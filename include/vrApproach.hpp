@@ -74,20 +74,25 @@ class VrApproach
     block = vector<VrBlock>(n, VrBlock());
   }
   void CalculateBmats(const Set& edges, BdCondType type) {
-    if (type == BdCondType::Interior ||
-        type == BdCondType::Periodic ||
-        type == BdCondType::OutFlow) {
-      for (auto& e : edges) {
-        Real normal[2] = {e->Nx(), e->Ny()}; Real distance = e->Distance();
-        Real dp[kOrder+1];
-        for (int i = 0; i <= kOrder; ++i){
-          dp[i] = Pow(distance, 2*i-1)/ Pow(Factorial(i), 2);
-        }
-        e->Integrate([&](const Node& node) {
-          return GetMatAt(node.data(), *(e->left), *(e->right), normal, dp);
-        }, &B_mat[e->I()]);
-        // cout << B_mat[e->I()] << endl << endl;
+    Real factor[kOrder+1];
+    for (int i = 0; i <= kOrder; ++i){ factor[i] = 1.0; }
+    if (type == BdCondType::FarField ||
+        type == BdCondType::InFlow ||
+        type == BdCondType::InviscWall) {
+      for (int i = 1; i <= kOrder; ++i){ factor[i] = 0.0; }
+    } else if (type == BdCondType::Symmetry){
+      for (int i = 1; i <= kOrder; ++i){ factor[i] *= Pow(-1, i); }
+    }
+    for (auto& e : edges) {
+      Real normal[2] = {e->Nx(), e->Ny()}; Real distance = e->Distance();
+      Real dp[kOrder+1];
+      for (int i = 0; i <= kOrder; ++i){
+        dp[i] = Pow(distance, 2*i-1) * factor[i] / Pow(Factorial(i), 2);
       }
+      e->Integrate([&](const Node& node) {
+        return GetMatAt(node.data(), *(e->left), *(e->right), normal, dp);
+      }, &B_mat[e->I()]);
+      // cout << B_mat[e->I()] << endl << endl;
     }
   }
   void CalculateAinvs(const MeshType& mesh) {
@@ -98,8 +103,16 @@ class VrApproach
         Matrix temp = Matrix::Zero();
         Real normal[2] = {e->Nx(), e->Ny()}; Real distance = e->Distance();
         Real dp[kOrder+1];
-        for (int k = 0; k <= kOrder; ++k){
-          dp[k] = Pow(distance, 2*k-1)/ Pow(Factorial(k), 2);
+        if (c->Adjc(j) >= 0) { // Interiod, Periodic, SuperOutFlow Edges
+          Dp<kOrder>::GetDpArrayInterior(distance, dp);
+        } else if (BdCondType(-c->Adjc(j)) == BdCondType::FarField ||
+                   BdCondType(-c->Adjc(j)) == BdCondType::InFlow ||
+                   BdCondType(-c->Adjc(j)) == BdCondType::InviscWall) {
+          Dp<kOrder>::GetDpArrayP0(distance, dp);
+        } else if (BdCondType(-c->Adjc(j)) == BdCondType::Symmetry) {
+          Dp<kOrder>::GetDpArraySymmetry(distance, dp);
+        } else {
+          PetscPrintf(PETSC_COMM_SELF, "Unknown BC types(%D)\n", -(c->Adjc(j)));
         }
         e->Integrate([&](const Node& node) {
           return GetMatAt(node.data(), *c, *c, normal, dp);
@@ -118,6 +131,8 @@ class VrApproach
     for (int i = 0; i < mesh.NumLocalCells(); ++i) {
       auto c = mesh.cell[i].get();
       for (int j = 0; j < c->nCorner(); ++j) {
+        // cout << A_inv[i]  << endl;
+        // cout << B_mat[c->Edge(j)] << endl << endl;
         if (c->Adjc(j) < i) {
           block[offset[i]+j].C_mat = A_inv[i] * B_mat[c->Edge(j)];
         } else {
