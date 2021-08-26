@@ -74,25 +74,37 @@ class VrApproach
     block = vector<VrBlock>(n, VrBlock());
   }
   void CalculateBmats(const Set& edges, BdCondType type) {
-    Real factor[kOrder+1];
-    for (int i = 0; i <= kOrder; ++i){ factor[i] = 1.0; }
-    if (type == BdCondType::FarField ||
-        type == BdCondType::InFlow ||
-        type == BdCondType::InviscWall) {
-      for (int i = 1; i <= kOrder; ++i){ factor[i] = 0.0; }
-    } else if (type == BdCondType::Symmetry){
-      for (int i = 1; i <= kOrder; ++i){ factor[i] *= Pow(-1, i); }
-    }
-    for (auto& e : edges) {
-      Real normal[2] = {e->Nx(), e->Ny()}; Real distance = e->Distance();
-      Real dp[kOrder+1];
-      for (int i = 0; i <= kOrder; ++i){
-        dp[i] = Pow(distance, 2*i-1) * factor[i] / Pow(Factorial(i), 2);
+    if (type == BdCondType::Interior || type == BdCondType::Periodic ||
+        type == BdCondType::OutFlow) {
+      for (auto& e : edges) {
+        Real normal[2] = {e->Nx(), e->Ny()}; Real distance = e->Distance();
+        Real dp[kOrder+1]; Dp<kOrder>::GetDpArrayInterior(distance, dp);
+        e->Integrate([&](const Node& node) {
+          return GetMatAt(node.data(), *(e->left), *(e->right), normal, dp);
+        }, &B_mat[e->I()]);
+        // cout << B_mat[e->I()] << endl << endl;
       }
-      e->Integrate([&](const Node& node) {
-        return GetMatAt(node.data(), *(e->left), *(e->right), normal, dp);
-      }, &B_mat[e->I()]);
-      // cout << B_mat[e->I()] << endl << endl;
+    } else if (type == BdCondType::FarField || type == BdCondType::InFlow ||
+               type == BdCondType::InviscWall) {
+      for (auto& e : edges) {
+        Real normal[2] = {e->Nx(), e->Ny()}; Real distance = e->Distance();
+        Real dp[kOrder+1]; Dp<kOrder>::GetDpArrayP0(distance, dp);
+        auto c = e->left; if (e->right) c = e->right;
+        e->Integrate([&](const Node& node) {
+          return GetMatAt(node.data(), *c, *c, normal, dp);
+        }, &B_mat[e->I()]);
+        // cout << B_mat[e->I()] << endl << endl;
+      }
+    } else if (type == BdCondType::Symmetry){
+      for (auto& e : edges) {
+        Real normal[2] = {e->Nx(), e->Ny()}; Real distance = e->Distance();
+        Real dp[kOrder+1]; Dp<kOrder>::GetDpArraySymmetry(distance, dp);
+        auto c = e->left; if (e->right) c = e->right;
+        e->Integrate([&](const Node& node) {
+          return GetMatAt(node.data(), *c, *c, normal, dp);
+        }, &B_mat[e->I()]);
+        // cout << B_mat[e->I()] << endl << endl;
+      }
     }
   }
   void CalculateAinvs(const MeshType& mesh) {
