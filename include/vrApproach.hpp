@@ -16,6 +16,7 @@
 #include "bndConds.hpp"
 #include "defs.hpp"
 #include "geometry/mesh.hpp"
+#include <iostream>
 
 using namespace std;
 
@@ -102,7 +103,7 @@ class VrApproach
         // cout << block[offset[i]+j].b_sub.transpose() << endl << endl;
       }
       A_inv[i] = A_inv[i].inverse();
-      // cout << A_inv[i] << endl << endl;
+      cout << A_inv[i] << endl << endl;
     }
   }
   void CalculateBlockC(const MeshType& mesh) {

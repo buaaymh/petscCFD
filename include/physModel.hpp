@@ -21,6 +21,7 @@ struct Linear {
   Linear() = default;
   static constexpr int nEqual = 1;
   using Flux = Eigen::Matrix<Real, nEqual, 1>;
+  using State = Flux;
   static unordered_map<string, int> CreateFieldDiscription() {
     unordered_map<string, int>  field_desc;
     field_desc.emplace("Density", 1);
@@ -38,6 +39,8 @@ struct Euler
 {
   Euler() = default;
   static constexpr int nEqual = 4;
+  using Flux = Eigen::Matrix<Real, nEqual, 1>;
+  using State = Flux;
   static unordered_map<string, int> CreateFieldDiscription() {
     unordered_map<string, int>  field_desc;
     field_desc.emplace("Density", 1);
