@@ -13,9 +13,9 @@
 #ifndef INCLUDE_VRAPPROACH_HPP_
 #define INCLUDE_VRAPPROACH_HPP_
 
+#include "bndConds.hpp"
 #include "defs.hpp"
 #include "geometry/mesh.hpp"
-#include "bndConds.hpp"
 
 using namespace std;
 
@@ -29,8 +29,8 @@ class VrApproach
   using MeshType = Mesh<kOrder>;
   using Cell = typename MeshType::CellType;
   using FuncTable = typename Cell::BasisF;
-  using Set = typename MeshType::EdgeSet;
-  using BndCondsType = BndConds<MeshType, Physics>;
+  using BndCondsType = BndConds<kOrder, Physics>;
+  using Set = typename EdgeGroup<kOrder, Physics>::EdgeSet;
   struct VrBlock {
     VrBlock() : C_mat(Matrix::Zero()), b_sub(Column::Zero()) {}
     Matrix C_mat;
@@ -72,40 +72,6 @@ class VrApproach
     }
     int n = offset[n_cell-1] + mesh.cell[n_cell-1]->nCorner();
     block = vector<VrBlock>(n, VrBlock());
-  }
-  void CalculateBmats(const Set& edges, BdCondType type) {
-    if (type == BdCondType::Interior || type == BdCondType::Periodic ||
-        type == BdCondType::OutFlow) {
-      for (auto& e : edges) {
-        Real normal[2] = {e->Nx(), e->Ny()}; Real distance = e->Distance();
-        Real dp[kOrder+1]; Dp<kOrder>::GetDpArrayInterior(distance, dp);
-        e->Integrate([&](const Node& node) {
-          return GetMatAt(node.data(), *(e->left), *(e->right), normal, dp);
-        }, &B_mat[e->I()]);
-        // cout << B_mat[e->I()] << endl << endl;
-      }
-    } else if (type == BdCondType::FarField || type == BdCondType::InFlow ||
-               type == BdCondType::InviscWall) {
-      for (auto& e : edges) {
-        Real normal[2] = {e->Nx(), e->Ny()}; Real distance = e->Distance();
-        Real dp[kOrder+1]; Dp<kOrder>::GetDpArrayP0(distance, dp);
-        auto c = e->left; if (e->right) c = e->right;
-        e->Integrate([&](const Node& node) {
-          return GetMatAt(node.data(), *c, *c, normal, dp);
-        }, &B_mat[e->I()]);
-        // cout << B_mat[e->I()] << endl << endl;
-      }
-    } else if (type == BdCondType::Symmetry){
-      for (auto& e : edges) {
-        Real normal[2] = {e->Nx(), e->Ny()}; Real distance = e->Distance();
-        Real dp[kOrder+1]; Dp<kOrder>::GetDpArraySymmetry(distance, dp);
-        auto c = e->left; if (e->right) c = e->right;
-        e->Integrate([&](const Node& node) {
-          return GetMatAt(node.data(), *c, *c, normal, dp);
-        }, &B_mat[e->I()]);
-        // cout << B_mat[e->I()] << endl << endl;
-      }
-    }
   }
   void CalculateAinvs(const MeshType& mesh) {
     for (int i = 0; i < mesh.NumLocalCells(); ++i) {
@@ -153,17 +119,6 @@ class VrApproach
       }
     }
   }
-  vector<int> offset;
-  vector<Matrix> A_inv;
-  vector<Matrix> B_mat;
-  vector<Column> b_col;
-  vector<VrBlock> block;
-
-  // functions
-  VrApproach() = default;
-  void BuildBlock(const MeshType& mesh, const BndCondsType& bndcond);
-
- private:
   static Matrix GetMatAt(const Real* coord, const Cell& a, const Cell& b,
                          const Real* normal, const Real* dp) {
     FuncTable i = a.GetFuncTable(coord, normal);
@@ -177,6 +132,17 @@ class VrApproach
     if (a.I() > b.I()) mat.transposeInPlace();
     return mat;
   }
+  vector<int> offset;
+  vector<Matrix> A_inv;
+  vector<Matrix> B_mat;
+  vector<Column> b_col;
+  vector<VrBlock> block;
+
+  // functions
+  VrApproach() = default;
+  void BuildBlock(const MeshType& mesh, const BndCondsType& bndcond);
+
+ private:
   static Column GetVecAt(const Cell& a, const Real* coord, Real distance) {
     return a.Functions(coord) / distance;
   }

@@ -1,0 +1,3 @@
+add_executable(test_algebra_algebra algebra.cpp)
+set_target_properties(test_algebra_algebra PROPERTIES OUTPUT_NAME algebra)
+add_test(NAME TestAlgebraAlgebra COMMAND algebra)

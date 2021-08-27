@@ -16,13 +16,9 @@
 #include "defs.hpp"
 #include "geometry/element.hpp"
 #include <petscsf.h>
-#include <iostream>
-
 #include <memory>
-#include <set>
 
 using namespace std;
-using Node = Eigen::Matrix<Real,2,1>;
 
 template <int kOrder>
 class Mesh
@@ -32,16 +28,13 @@ class Mesh
   using EdgeType = Edge<kOrder>;
   using CellType = Cell<kOrder>;
   using GhostType = Ghost<kOrder>;
-  struct cmp {bool operator()(EdgeType* a, EdgeType* b) const {return a->I() < b->I();}};
-  using EdgeSet = set<EdgeType*, cmp>;
-
+  
   DM                                 dm;
   PetscSF                            sf;
 
   vector<Node> node;                 /**< node(local+overlap) list */
   vector<unique_ptr<EdgeType>> edge; /**< edge(local+overlap) list */
   vector<unique_ptr<CellType>> cell; /**< cell(local+overlap+ghost) list */
-  EdgeSet interior;
 
   // functions
   Mesh() = default;

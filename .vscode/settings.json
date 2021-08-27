@@ -73,6 +73,16 @@
     "*.in": "cpp",
     "fft": "cpp",
     "adolcforward": "cpp",
-    "mprealsupport": "cpp"
+    "mprealsupport": "cpp",
+    "core": "cpp",
+    "superlusupport": "cpp",
+    "autodiff": "cpp",
+    "bvh": "cpp",
+    "eulerangles": "cpp",
+    "kroneckerproduct": "cpp",
+    "numericaldiff": "cpp",
+    "openglsupport": "cpp",
+    "specialfunctions": "cpp",
+    "splines": "cpp"
   }
 }

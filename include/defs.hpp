@@ -1,4 +1,4 @@
-/// @file defs.hpp
+/// @file defs.h
 ///
 /// Global definitions, structures and macros.
 ///
@@ -13,12 +13,12 @@
 #ifndef INCLUDE_DSFS_HPP_
 #define INCLUDE_DSFS_HPP_
 
-#include <algorithm>
 #include <cmath>
 #include <cfloat>
 #include <Eigen/Dense>
 #include <petscdmplex.h>
-#include <petscts.h>
+
+// #include "solver.hpp"
 
 #define DIM 2   /* Geometric dimension */
 
@@ -27,6 +27,10 @@
 
   /// Kind of time-stepping
   enum class TimeStepping { RK3 };
+
+  /// Kind of edge and boundary
+  enum class BdCondType { Interior, Periodic, InFlow, OutFlow,
+                          FarField, InviscWall, Symmetry };
 
 // floating point type (SGLPREC=single precision, otherwise double) ***********
 
@@ -61,27 +65,29 @@
 #define OneOverGamma               1/Gamma
 #define OneOverGammaMinusOne       1/GammaMinusOne
 
-// function macros ************************************************************
+// declare template class macros ***********************************************
+template<int kOrder, class Physics>
+struct BndConds;
+template<int kOrder, class Physics>
+struct EdgeGroup;
+template<int kOrder, class Physics>
+class Solver;
+template <int kOrder>
+class Edge;
+template <int kOrder>
+class Cell;
+template <int kOrder>
+class Mesh;
 
-static constexpr Real Sign(Real a) {
-  if (a < 0) { return -1; }
-  else if (a > 0) { return 1;}
-  else { return 0; }
-}
-
-static constexpr Real Minmod(Real a, Real b) {
-  if (a * b <= 0) { return 0; }
-  else { return Sign(a) * std::min(Abs(a), Abs(b)); }
-}
-
-static constexpr Real Factorial(int p) {
-  int fac = 1;
-  for (int i = 1; i <= p; ++i) { fac *= i; }
-  return Real(fac);
-}
+// static function class macros ***********************************************
 
 template <int kOrder>
 struct Dp {
+  static constexpr Real Factorial(int p) {
+    int fac = 1;
+    for (int i = 1; i <= p; ++i) { fac *= i; }
+    return Real(fac);
+  }
   static void GetDpArrayInterior(Real distance, Real* dp) {
     for (int i = 0; i <= kOrder; ++i) {
       dp[i] = Pow(distance, 2*i-1) / Pow(Factorial(i), 2);
@@ -95,6 +101,28 @@ struct Dp {
     for (int i = 0; i <= kOrder; ++i) {
       dp[i] = Pow(distance, 2*i-1) * Pow(-1,i) / Pow(Factorial(i), 2);
     }
+  }
+};
+
+template <int nEqual, int kOrder>
+struct Algebra {
+  using State = Eigen::Matrix<Real, nEqual, 1>;
+  static constexpr int nCoef = (kOrder+1)*(kOrder+2)/2-1; /**< Dofs -1 */
+  static constexpr State Grad(const Real* basis, const Real* valCoefs) {
+    State state = State::Zero();
+    int iter{0};
+    for (int i = 0; i < nEqual; ++i) {
+      for (int j = 0; j < nCoef; ++j) {
+        state(i) += valCoefs[iter++] * basis[j];
+      }
+    }
+    return state;
+  }
+  static constexpr void Add(int n, Real* a, const Real* b) {
+    for (int i = 0; i < n; ++i) { a[i] += b[i]; }
+  }
+  static constexpr void Sub(int n, Real* a, const Real* b) {
+    for (int i = 0; i < n; ++i) { a[i] -= b[i]; }
   }
 };
 

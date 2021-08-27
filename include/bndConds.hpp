@@ -14,17 +14,12 @@
 #define INCLUDE_BNDCONDS_HPP_
 
 #include "defs.hpp"
-#include <set>
-#include <algorithm>
-#include <iostream>
-#include "geometry/mesh.hpp"
 #include "solver.hpp"
+#include "vrApproach.hpp"
+#include <set>
+#include <iostream>
 
 using namespace std;
-
-/// Types of fluid flow
-enum class BdCondType { Interior, Periodic, InFlow, OutFlow,
-                        FarField, InviscWall, Symmetry };
 
 struct BC {
   // Periodic Boundary
@@ -35,26 +30,51 @@ struct BC {
   static void InFlow(Real t, const Real* coord, Real* Vals) {}
 };
 
-template<class Mesh, class Physics>
-struct Bd {
+template<int kOrder, class Physics>
+struct EdgeGroup {
+  using SolverType = Solver<kOrder, Physics>;
+  using Mesh = typename SolverType::MeshType;
   using Edge = typename Mesh::EdgeType;
-  using Cell = typename Mesh::CellType;
-  using Set = typename Mesh::EdgeSet;
-  Bd() = default;
+  struct cmp {bool operator()(Edge* a, Edge* b) const {return a->I() < b->I();}};
+  using EdgeSet = set<Edge*, cmp>;
+  EdgeGroup() = default;
   virtual void PreProcess() = 0;
-  Set edge;
+  virtual void CalculateBmats(VrApproach<kOrder, Physics>& vr) const = 0;
+  EdgeSet edge;
 };
-template<class Mesh, class Physics>
-struct PeriodicBd : public Bd<Mesh,Physics> {
+template<int kOrder, class Physics>
+struct Interior : public EdgeGroup<kOrder,Physics> {
+  // Types:
+  using Base = EdgeGroup<kOrder,Physics>;
+  Interior() : EdgeGroup<kOrder,Physics>() {}
+  void PreProcess() override {}
+  void CalculateBmats(VrApproach<kOrder, Physics>& vr) const override {
+    for (auto& e : Base::edge) {
+      Real normal[2] = {e->Nx(), e->Ny()}; Real distance = e->Distance();
+      Real dp[kOrder+1]; Dp<kOrder>::GetDpArrayInterior(distance, dp);
+      e->Integrate([&](const Node& node) {
+        return vr.GetMatAt(node.data(), *(e->left), *(e->right), normal, dp);
+      }, &vr.B_mat[e->I()]);
+      cout << vr.B_mat[e->I()] << endl << endl;
+    }
+  }
+};
+template<int kOrder, class Physics>
+struct Periodic : public EdgeGroup<kOrder,Physics> {
+  // Types:
+  using Base = EdgeGroup<kOrder,Physics>;
+  using SolverType = Solver<kOrder, Physics>;
+  using Mesh = typename SolverType::MeshType;
   using Edge = typename Mesh::EdgeType;
   using Cell = typename Mesh::CellType;
   using Ghost = typename Mesh::GhostType;
-  PeriodicBd(const Real* lower, const Real* upper) : Bd<Mesh,Physics>() {
+  // Construction:
+  Periodic(const Real* lower, const Real* upper) : Base() {
     lower_[0] = lower[0]; lower_[1] = lower[1];
     upper_[0] = upper[0]; upper_[1] = upper[1];
   }
   void PreProcess() override {
-    for ( auto& e : Bd<Mesh,Physics>::edge) {
+    for (auto& e : Base::edge) {
       if (Abs(e->Center()(0)-lower_[0]) < 1e-6) { bdL.emplace_back(e); }
       else if (Abs(e->Center()(1)-lower_[1]) < 1e-6) { bdB.emplace_back(e); }
       else if (Abs(e->Center()(0)-upper_[0]) < 1e-6) { bdR.emplace_back(e); }
@@ -70,9 +90,19 @@ struct PeriodicBd : public Bd<Mesh,Physics> {
     sort(bdR.begin(), bdR.end(), cmpY);
     sort(bdB.begin(), bdB.end(), cmpX);
     sort(bdT.begin(), bdT.end(), cmpX);
-    ghost.reserve(Bd<Mesh,Physics>::edge.size());
+    ghost.reserve(Base::edge.size());
     for (int i = 0; i < bdL.size(); ++i) { MatchEdges(bdL[i], bdR[i]); }
     for (int i = 0; i < bdB.size(); ++i) { MatchEdges(bdB[i], bdT[i]); }
+  }
+  void CalculateBmats(VrApproach<kOrder, Physics>& vr) const override {
+    for (auto& e : Base::edge) {
+      Real normal[2] = {e->Nx(), e->Ny()}; Real distance = e->Distance();
+      Real dp[kOrder+1]; Dp<kOrder>::GetDpArrayInterior(distance, dp);
+      e->Integrate([&](const Node& node) {
+        return vr.GetMatAt(node.data(), *(e->left), *(e->right), normal, dp);
+      }, &vr.B_mat[e->I()]);
+      cout << vr.B_mat[e->I()] << endl << endl;
+    }
   }
   void MatchEdges(Edge* a, Edge* b) {
     auto ab = Node(a->Center() - b->Center());
@@ -120,27 +150,43 @@ struct PeriodicBd : public Bd<Mesh,Physics> {
   Real lower_[2];
   Real upper_[2];
 };
-template<class Mesh, class Physics>
-struct OutFlowBd : public Bd<Mesh,Physics> {
-  using Edge = typename Mesh::EdgeType;
-  using Cell = typename Mesh::CellType;
-  OutFlowBd() : Bd<Mesh,Physics>() {}
+template<int kOrder, class Physics>
+struct OutFlow : public EdgeGroup<kOrder,Physics> {
+  // Types:
+  using Base = EdgeGroup<kOrder,Physics>;
+  // Construction:
+  OutFlow() : Base() {}
   void PreProcess() override {
-    for ( auto& e : Bd<Mesh,Physics>::edge) {
+    for ( auto& e : Base::edge) {
       if (e->left == nullptr) { e->left = e->right; }
       else { e->right = e->left; }
       auto dist = (e->left->Center()-e->Center()).norm();
       e->SetDist(dist);
     }
   }
+  void CalculateBmats(VrApproach<kOrder, Physics>& vr) const {
+    for (auto& e : Base::edge) {
+      Real normal[2] = {e->Nx(), e->Ny()}; Real distance = e->Distance();
+      Real dp[kOrder+1]; Dp<kOrder>::GetDpArrayInterior(distance, dp);
+      e->Integrate([&](const Node& node) {
+        return vr.GetMatAt(node.data(), *(e->left), *(e->right), normal, dp);
+      }, &vr.B_mat[e->I()]);
+      cout << vr.B_mat[e->I()] << endl << endl;
+    }
+  }
 };
-template<class Mesh, class Physics>
-struct InFlowBd : public Bd<Mesh,Physics> {
+template<int kOrder, class Physics>
+struct InFlow : public EdgeGroup<kOrder,Physics> {
+  // Types:
+  using Base = EdgeGroup<kOrder,Physics>;
+  using SolverType = Solver<kOrder, Physics>;
+  using Mesh = typename SolverType::MeshType;
   using Value = Eigen::Matrix<Real, Physics::nEqual, 1>;
   using Coefs = Eigen::Matrix<float, Mesh::nCoef * Physics::nEqual, 1>;
-  InFlowBd(void(*func) (Real, const Real*, Real*)) : Bd<Mesh,Physics>(), func_(func) {}
+  // Construction:
+  InFlow(void(*func) (Real, const Real*, Real*)) : Base(), func_(func) {}
   void PreProcess() override {
-    for (auto& e : Bd<Mesh,Physics>::edge) {
+    for (auto& e : Base::edge) {
       bdVal.emplace(e->I(), Value::Zero());
       bdCoef.emplace(e->I(), Coefs::Zero());
       if (e->left == nullptr) {
@@ -152,20 +198,31 @@ struct InFlowBd : public Bd<Mesh,Physics> {
       }
     }
   }
+  void CalculateBmats(VrApproach<kOrder, Physics>& vr) const override {
+    for (auto& e : Base::edge) {
+      Real normal[2] = {e->Nx(), e->Ny()}; Real distance = e->Distance();
+        Real dp[kOrder+1]; Dp<kOrder>::GetDpArrayP0(distance, dp);
+        auto c = e->left; if (e->right) c = e->right;
+        e->Integrate([&](const Node& node) {
+          return vr.GetMatAt(node.data(), *c, *c, normal, dp);
+        }, &vr.B_mat[e->I()]);
+      cout << vr.B_mat[e->I()] << endl << endl;
+    }
+  }
   void(*func_) (Real, const Real*, Real*);
   unordered_map<int, Value> bdVal;
   unordered_map<int, Coefs> bdCoef;
 };
-template<class Mesh, class Physics>
-struct FarFieldBd : public Bd<Mesh,Physics> {
-  using Edge = typename Mesh::EdgeType;
-  using Cell = typename Mesh::CellType;
-  FarFieldBd(const Real* reference, int nVals) : Bd<Mesh,Physics>() {
+template<int kOrder, class Physics>
+struct FarField : public EdgeGroup<kOrder,Physics> {
+  // Types:
+  using Base = EdgeGroup<kOrder,Physics>;
+  FarField(const Real* reference, int nVals) : EdgeGroup<kOrder,Physics>() {
     refer_ = new Real[nVals];
     for (int i = 0; i < nVals; ++i) { refer_[i] = reference[i]; }
   }
   void PreProcess() override {
-    for (auto& e : Bd<Mesh,Physics>::edge) {
+    for (auto& e : EdgeGroup<kOrder,Physics>::edge) {
       if (e->left == nullptr) {
         Real dist = (e->right->Center() - e->Center()).norm();
         e->SetDist(dist);
@@ -175,16 +232,27 @@ struct FarFieldBd : public Bd<Mesh,Physics> {
       }
     }
   }
-  ~FarFieldBd() { delete[] refer_;}
+  void CalculateBmats(VrApproach<kOrder, Physics>& vr) const override {
+    for (auto& e : Base::edge) {
+      Real normal[2] = {e->Nx(), e->Ny()}; Real distance = e->Distance();
+        Real dp[kOrder+1]; Dp<kOrder>::GetDpArrayP0(distance, dp);
+        auto c = e->left; if (e->right) c = e->right;
+        e->Integrate([&](const Node& node) {
+          return vr.GetMatAt(node.data(), *c, *c, normal, dp);
+        }, &vr.B_mat[e->I()]);
+      cout << vr.B_mat[e->I()] << endl << endl;
+    }
+  }
+  ~FarField() { delete[] refer_;}
   Real* refer_;
 };
-template<class Mesh, class Physics>
-struct InviscWallBd : public Bd<Mesh,Physics> {
-  using Edge = typename Mesh::EdgeType;
-  using Cell = typename Mesh::CellType;
-  InviscWallBd() : Bd<Mesh,Physics>() {}
+template<int kOrder, class Physics>
+struct InviscWall : public EdgeGroup<kOrder,Physics> {
+  // Types:
+  using Base = EdgeGroup<kOrder,Physics>;
+  InviscWall() : Base() {}
   void PreProcess() override {
-    for (auto& e : Bd<Mesh,Physics>::edge) {
+    for (auto& e : Base::edge) {
       if (e->left == nullptr) {
         Real dist = (e->right->Center() - e->Center()).norm();
         e->SetDist(dist);
@@ -194,51 +262,58 @@ struct InviscWallBd : public Bd<Mesh,Physics> {
       }
     }
   }
-};
-template<class Mesh, class Physics>
-struct BndConds {
-  BndConds() = default;
-  void PreProcess() {
-    for (auto& [type, bd] : bdGroup) {
-      bd->PreProcess();
+  void CalculateBmats(VrApproach<kOrder, Physics>& vr) const override {
+    for (auto& e : Base::edge) {
+      Real normal[2] = {e->Nx(), e->Ny()}; Real distance = e->Distance();
+        Real dp[kOrder+1]; Dp<kOrder>::GetDpArrayP0(distance, dp);
+        auto c = e->left; if (e->right) c = e->right;
+        e->Integrate([&](const Node& node) {
+          return vr.GetMatAt(node.data(), *c, *c, normal, dp);
+        }, &vr.B_mat[e->I()]);
+      cout << vr.B_mat[e->I()] << endl << endl;
     }
   }
+};
+template<int kOrder, class Physics>
+struct BndConds {
+  // Type:
+  using SolverType = Solver<kOrder, Physics>;
+  using Mesh = typename SolverType::MeshType;
+  BndConds() = default;
+  void PreProcess() {
+    for (auto& [type, bd] : bdGroup) { bd->PreProcess(); }
+  }
   void InitializeBndConds(DM dm, const BC* bc) {
-    PetscMPIInt       rank;
     IS                bdTypeIS;
     DMLabel           label;
     const int         *types;
     int               numTypes;
-    MPI_Comm_rank(PETSC_COMM_WORLD, &rank);
+    /* Interior edge group initialization */
+    bdGroup[0] = make_unique<Interior<kOrder,Physics>>();
+    /* Boundary edge group initialization */
     DMGetLabel(dm, "Face Sets", &label);
     DMGetLabelIdIS(dm, "Face Sets", &bdTypeIS);
     ISGetLocalSize(bdTypeIS, &numTypes);
     ISGetIndices(bdTypeIS, &types);
-    PetscPrintf(PETSC_COMM_SELF, "**********Processor(%D)**********\n", rank);
     for (int i = 0; i < numTypes; ++i) {
       switch (BdCondType(types[i]))
       {
       case BdCondType::Periodic:
-        bdGroup[types[i]] = make_unique<PeriodicBd<Mesh,Physics>>(bc->lower, bc->upper);
-        PetscPrintf(PETSC_COMM_SELF, "Boundary(%D) <Periodic>\n", types[i]);
+        bdGroup[types[i]] = make_unique<Periodic<kOrder,Physics>>(bc->lower, bc->upper);
         break;
       case BdCondType::InFlow:
-        bdGroup[types[i]] = make_unique<InFlowBd<Mesh,Physics>>(bc->InFlow);
-        PetscPrintf(PETSC_COMM_SELF, "Boundary(%D) <InFlow>\n", types[i]);
+        bdGroup[types[i]] = make_unique<InFlow<kOrder,Physics>>(bc->InFlow);
         break;
       case BdCondType::OutFlow:
-        bdGroup[types[i]] = make_unique<OutFlowBd<Mesh,Physics>>();
-        PetscPrintf(PETSC_COMM_SELF, "Boundary(%D) <OutFlow>\n", types[i]);
+        bdGroup[types[i]] = make_unique<OutFlow<kOrder,Physics>>();
         break;
       case BdCondType::FarField:
-        bdGroup[types[i]] = make_unique<FarFieldBd<Mesh,Physics>>(bc->refVal, 1);
-        PetscPrintf(PETSC_COMM_SELF, "Boundary(%D) <FarField>\n", types[i]);
+        bdGroup[types[i]] = make_unique<FarField<kOrder,Physics>>(bc->refVal, 1);
         break;
       default:
         break;
       }
     }
-    PetscPrintf(PETSC_COMM_SELF, "******************************\n");
   }
   void ClassifyEdges(Mesh& mesh) {
     int               eStart, eEnd;
@@ -254,13 +329,13 @@ struct BndConds {
         } else {
           auto dist = (mesh.edge[e]->left->Center() - mesh.edge[e]->right->Center()).norm();
           mesh.edge[e]->SetDist(dist);
-          mesh.interior.insert(mesh.edge[e].get());
+          bdGroup[0]->edge.insert(mesh.edge[e].get());
         }
       }
     }
   }
   unordered_map<int, int> types;
-  unordered_map<int, unique_ptr<Bd<Mesh,Physics>>> bdGroup;
+  unordered_map<int, unique_ptr<EdgeGroup<kOrder,Physics>>> bdGroup;
   ~BndConds() = default;
 };
 #endif // INCLUDE_BNDCONDS_HPP_

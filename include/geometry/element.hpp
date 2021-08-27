@@ -19,10 +19,8 @@
 #include <petscdmplex.h>
 
 using namespace std;
-using Node = Eigen::Matrix<Real,2,1>;
 
-template <int kOrder>
-class Cell;
+using Node = Eigen::Matrix<Real,2,1>;
 
 template <int kOrder>
 class Edge
@@ -414,6 +412,7 @@ class Cell<3> : public Cell<2>
   static constexpr QuaQuad<3> qua_ = QuaQuad<3>();
   Real xxx_, xxy_, xyy_, yyy_;
 };
+
 template <int kOrder>
 class Ghost : public Cell<kOrder>
 {
@@ -425,6 +424,7 @@ class Ghost : public Cell<kOrder>
   int Adjc(int i) const override {}
   void SetAdjc(int i, int id) override {}
 };
+
 template <int kOrder>
 class Triangle : public Cell<kOrder>
 {

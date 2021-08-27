@@ -17,14 +17,21 @@
 
 using namespace std;
 
-struct Linear
-{
+struct Linear {
   Linear() = default;
   static constexpr int nEqual = 1;
+  using Flux = Eigen::Matrix<Real, nEqual, 1>;
   static unordered_map<string, int> CreateFieldDiscription() {
     unordered_map<string, int>  field_desc;
     field_desc.emplace("Density", 1);
     return field_desc;
+  }
+  static Flux Riemann(int dim, const Real* coord, const Real* normal,
+                                const Real* U_l, const Real* U_r) {
+    Flux F;
+    if (normal[0] > 0) { F(0) = U_l[0] * normal[0]; }
+    else { F(0) = U_r[0] * normal[0]; }
+    return F;
   }
 };
 struct Euler

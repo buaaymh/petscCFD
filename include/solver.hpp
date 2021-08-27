@@ -17,11 +17,9 @@
 #include "physModel.hpp"
 #include "bndConds.hpp"
 #include "vrApproach.hpp"
-#include "petscts.h"
-#include <petscsf.h>
+#include "timeDiscr.hpp"
 #include "geometry/mesh.hpp"
 
-#include <iostream>
 #include <string>
 #include "data/path.hpp"  // defines TEST_DATA_DIR
 
@@ -34,8 +32,9 @@ class Solver
   using MeshType =  Mesh<kOrder>;
   Physics                            physics;     /**< physical model */
   MeshType                           mesh;        /**< element and geometry */
-  BndConds<MeshType, Physics>        bndConds;    /**< boundary conditions */
+  BndConds<kOrder, Physics>          bndConds;    /**< boundary conditions */
   VrApproach<kOrder, Physics>        vrApproach;  /**< variational reconstruction */
+  RK3TS                              ts;
 
   // functions
   Solver() = default;
@@ -53,31 +52,80 @@ class Solver
   }
   void InitializeDS() {
     vrApproach.AllocatorMats(mesh);
-    vrApproach.CalculateBmats(mesh.interior, BdCondType::Interior);
     for (auto& [type, bd] : bndConds.bdGroup) {
-      vrApproach.CalculateBmats(bd->edge, BdCondType(type));
+      bd->CalculateBmats(vrApproach);
     }
     vrApproach.CalculateAinvs(mesh);
     vrApproach.CalculateBlockC(mesh);
   }
-  void InitSolution(void* func);
+  void InitializeTS() {
+    ts.SetDM(mesh.dm);
+    ts.SetSolverContext(this);
+    ts.SetTimeEndAndSetpNum(1.0, 4);
+  }
+  void InitializeSolution(function<void(int dim, const Real*, int, Real*)>func) {
+    Vec         X;
+    int         nCell = mesh.CountCells(), Nf = Physics::nEqual;
+    Real*       solution;
+    Real*       coord;
+
+    DMGetLocalVector(mesh.dm, &X);
+    VecGetArray(X, &solution);
+    for (int i = 0; i < nCell; ++i) {
+      PetscPrintf(PETSC_COMM_SELF, "(%f, %f)\n", mesh.cell[i]->Center()(0), mesh.cell[i]->Center()(1));
+      func(2, mesh.cell[i]->Center().data(), Nf, solution+i*Nf);
+    }
+    VecRestoreArray(X, &solution);
+    DMRestoreLocalVector(mesh.dm, &X);
+  }
+  void CalculateScalar() {
+    Vec X;
+
+    ts.SetRHSFunction(RHSFunctionScalar);
+    DMGetLocalVector(mesh.dm, &X);
+    VecView(X, PETSC_VIEWER_STDOUT_SELF);
+    ts.Solver(X);
+    VecView(X, PETSC_VIEWER_STDOUT_SELF);
+    DMRestoreLocalVector(mesh.dm, &X);
+  }
 
 
  private:
-  void Output(DM dm, const string& filename)
-  {
-    Vec               U;
-    PetscViewer       viewer;
+  static constexpr auto RHSFunctionScalar = [](Real t, Vec U, Vec RHS, void *ctx) {
+    using Flux = Eigen::Matrix<Real, Physics::nEqual, 1>;
+    Solver<kOrder, Physics>*      solver = (Solver<kOrder, Physics>*) ctx;
+    const Real*                   cv;
+    Real*                         rhs;
+    const int                     nEqual = Physics::nEqual;
+    Flux                          fc;
 
-    PetscViewerCreate(PETSC_COMM_WORLD, &viewer);
-    PetscViewerSetType(viewer, PETSCVIEWERVTK);
-    PetscViewerFileSetName(viewer, filename.data());
-    DMGetGlobalVector(dm, &U);
-    PetscObjectSetName((PetscObject) U, "");
-    VecView(U, viewer);
-    PetscViewerDestroy(&viewer);
-    DMRestoreGlobalVector(dm, &U);
-  }
+    VecZeroEntries(RHS);
+    VecGetArrayRead(U, &cv);
+    VecGetArray(RHS, &rhs);
+
+    // for (auto& e : solver->mesh.interior) {
+    //   fc = Flux::Zero();
+    //   auto cell_l = e->left;
+    //   auto cell_r = e->right;
+    //   int i = cell_l->I(), j = cell_r->I();
+    //   Real normal[2] = {e->Nx(), e->Ny()};
+    //   e->Integrate([&](const Node& p) {
+    //     Real* u_l = cv[nEqual*i];
+    //     Real* u_r = cv[nEqual*j];
+    //     return Physics::Riemann(2, p.data(), u_l, u_r, normal);
+    //   }, &fc);
+    //   for (int k = 0; k < nEqual; ++k) {
+    //     rhs[nEqual*i+k] += fc(k);
+    //     rhs[nEqual*j+k] -= fc(k);
+    //   }
+    // }
+    // for (auto& [type, bd] : solver->bndConds.bdGroup) {
+    //   bd.UpdateRHS(cv, rhs);
+    // }
+
+    VecRestoreArrayRead(U, &cv);
+    VecRestoreArray(RHS, &rhs);
+  };
 };
 
 #endif // INCLUDE_SOLVER_HPP_
