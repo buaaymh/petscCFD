@@ -84,5 +84,6 @@
     "openglsupport": "cpp",
     "specialfunctions": "cpp",
     "splines": "cpp"
-  }
+  },
+  "C_Cpp.default.configurationProvider": "ms-vscode.cmake-tools"
 }

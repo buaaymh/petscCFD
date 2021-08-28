@@ -120,10 +120,11 @@ class Cell<1>
   void Move(const Node& begToEnd) { center_ += begToEnd; }
   // Accessors:
   static constexpr int Order() { return 1; }
-  virtual int nCorner() const = 0;
-  virtual int Edge(int i) const = 0;
-  virtual int Adjc(int i) const = 0;
-  virtual void SetAdjc(int i, int id) = 0;
+
+  virtual int nCorner() const {}
+  virtual int Edge(int i) const {}
+  virtual int Adjc(int i) const {}
+  virtual void SetAdjc(int i, int id) {}
   Real DxInv() const { return dx_inv_; }
   Real DyInv() const { return dy_inv_; }
   const Node& Center() const { return center_; }
@@ -194,7 +195,6 @@ class Cell<2> : public Cell<1>
     xy_ = IntegrateQua([&](Real* coord) { return F_0_0_0(coord)*F_1_0_0(coord);}, a, b, c, d) / Measure();
     yy_ = IntegrateQua([&](Real* coord) { return Pow(F_1_0_0(coord), 2);}, a, b, c, d) / Measure();
   }
-  virtual int nCorner() const = 0;
   static constexpr int Order() { return 2; }
   Real XX() const { return xx_; }
   Real XY() const { return xy_; }
@@ -419,10 +419,6 @@ class Ghost : public Cell<kOrder>
  public:
   // Constructors:
   Ghost(const Cell<kOrder>& cell) : Cell<kOrder>(cell) {}
-  int nCorner() const override {}
-  int Edge(int i) const override {}
-  int Adjc(int i) const override {}
-  void SetAdjc(int i, int id) override {}
 };
 
 template <int kOrder>

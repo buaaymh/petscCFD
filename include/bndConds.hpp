@@ -38,7 +38,15 @@ struct EdgeGroup {
   struct cmp {bool operator()(Edge* a, Edge* b) const {return a->I() < b->I();}};
   using EdgeSet = set<Edge*, cmp>;
   virtual void PreProcess() = 0;
-  virtual void CalculateBmats(VrApproach<kOrder, Physics>& vr) const = 0;
+  virtual void CalculateBmats(VrApproach<kOrder, Physics>& vr) const {
+    for (auto& e : edge) {
+      Real normal[2] = {e->Nx(), e->Ny()}; Real distance = e->Distance();
+      Real dp[kOrder+1]; Dp<kOrder>::GetDpArrayInterior(distance, dp);
+      e->Integrate([&](const Node& node) {
+        return vr.GetMatAt(node.data(), *(e->left), *(e->right), normal, dp);
+      }, &vr.B_mat[e->I()]);
+    }
+  }
   EdgeSet edge;
 };
 template<int kOrder, class Physics>
@@ -53,15 +61,6 @@ struct Interior : public EdgeGroup<kOrder,Physics> {
       e->SetDist(dist);
     }
   }
-  void CalculateBmats(VrApproach<kOrder, Physics>& vr) const override {
-    for (auto& e : Base::edge) {
-      Real normal[2] = {e->Nx(), e->Ny()}; Real distance = e->Distance();
-      Real dp[kOrder+1]; Dp<kOrder>::GetDpArrayInterior(distance, dp);
-      e->Integrate([&](const Node& node) {
-        return vr.GetMatAt(node.data(), *(e->left), *(e->right), normal, dp);
-      }, &vr.B_mat[e->I()]);
-    }
-  }
 };
 template<int kOrder, class Physics>
 struct Periodic : public EdgeGroup<kOrder,Physics> {
@@ -71,7 +70,6 @@ struct Periodic : public EdgeGroup<kOrder,Physics> {
   using Mesh = typename SolverType::MeshType;
   using Edge = typename Mesh::EdgeType;
   using Cell = typename Mesh::CellType;
-  using Ghost = typename Mesh::GhostType;
   // Construction:
   Periodic(const Real* lower, const Real* upper) : Base() {
     lower_[0] = lower[0]; lower_[1] = lower[1];
@@ -98,28 +96,19 @@ struct Periodic : public EdgeGroup<kOrder,Physics> {
     for (int i = 0; i < bdL.size(); ++i) { MatchEdges(bdL[i], bdR[i]); }
     for (int i = 0; i < bdB.size(); ++i) { MatchEdges(bdB[i], bdT[i]); }
   }
-  void CalculateBmats(VrApproach<kOrder, Physics>& vr) const override {
-    for (auto& e : Base::edge) {
-      Real normal[2] = {e->Nx(), e->Ny()}; Real distance = e->Distance();
-      Real dp[kOrder+1]; Dp<kOrder>::GetDpArrayInterior(distance, dp);
-      e->Integrate([&](const Node& node) {
-        return vr.GetMatAt(node.data(), *(e->left), *(e->right), normal, dp);
-      }, &vr.B_mat[e->I()]);
-    }
-  }
   void MatchEdges(Edge* a, Edge* b) {
     auto ab = Node(a->Center() - b->Center());
     if (a->left == nullptr) {
       if (b->right == nullptr) {
-        auto b_right = make_unique<Ghost>(*(a->right));
-        auto a_left = make_unique<Ghost>(*(b->left));
+        auto b_right = make_unique<Cell>(*(a->right));
+        auto a_left = make_unique<Cell>(*(b->left));
         a_left->Move(ab); b_right->Move(-ab);
         a->left = a_left.get(); b->right = b_right.get();
         ghost.emplace_back(move(a_left));
         ghost.emplace_back(move(b_right));
       } else {
-        auto b_left = make_unique<Ghost>(*(a->right));
-        auto a_left = make_unique<Ghost>(*(b->right));
+        auto b_left = make_unique<Cell>(*(a->right));
+        auto a_left = make_unique<Cell>(*(b->right));
         a_left->Move(ab); b_left->Move(-ab);
         a->left = a_left.get(); b->left = b_left.get();
         ghost.emplace_back(move(a_left));
@@ -127,15 +116,15 @@ struct Periodic : public EdgeGroup<kOrder,Physics> {
       }
     } else {
       if (b->right == nullptr) {
-        auto b_right = make_unique<Ghost>(*(a->left));
-        auto a_right = make_unique<Ghost>(*(b->left));
+        auto b_right = make_unique<Cell>(*(a->left));
+        auto a_right = make_unique<Cell>(*(b->left));
         a_right->Move(ab); b_right->Move(-ab);
         a->right = a_right.get(); b->right = b_right.get();
         ghost.emplace_back(move(a_right));
         ghost.emplace_back(move(b_right));
       } else {
-        auto b_left = make_unique<Ghost>(*(a->left));
-        auto a_right = make_unique<Ghost>(*(b->right));
+        auto b_left = make_unique<Cell>(*(a->left));
+        auto a_right = make_unique<Cell>(*(b->right));
         a_right->Move(ab); b_left->Move(-ab);
         a->right = a_right.get(); b->left = b_left.get();
         ghost.emplace_back(move(a_right));
@@ -162,15 +151,6 @@ struct OutFlow : public EdgeGroup<kOrder,Physics> {
       else { e->right = e->left; }
       auto dist = (e->left->Center() - e->Center()).norm();
       e->SetDist(dist);
-    }
-  }
-  void CalculateBmats(VrApproach<kOrder, Physics>& vr) const {
-    for (auto& e : Base::edge) {
-      Real normal[2] = {e->Nx(), e->Ny()}; Real distance = e->Distance();
-      Real dp[kOrder+1]; Dp<kOrder>::GetDpArrayInterior(distance, dp);
-      e->Integrate([&](const Node& node) {
-        return vr.GetMatAt(node.data(), *(e->left), *(e->right), normal, dp);
-      }, &vr.B_mat[e->I()]);
     }
   }
 };
