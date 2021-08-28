@@ -82,14 +82,14 @@ class VrApproach
         Matrix temp = Matrix::Zero();
         Real normal[2] = {e->Nx(), e->Ny()}; Real distance = e->Distance();
         Real dp[kOrder+1];
-        if (c->Adjc(j) >= 0) { // Interiod, Periodic, SuperOutFlow Edges
-          Dp<kOrder>::GetDpArrayInterior(distance, dp);
-        } else if (BdCondType(-c->Adjc(j)) == BdCondType::FarField ||
-                   BdCondType(-c->Adjc(j)) == BdCondType::InFlow ||
-                   BdCondType(-c->Adjc(j)) == BdCondType::InviscWall) {
-          Dp<kOrder>::GetDpArrayP0(distance, dp);
-        } else if (BdCondType(-c->Adjc(j)) == BdCondType::Symmetry) {
-          Dp<kOrder>::GetDpArraySymmetry(distance, dp);
+        if (c->Adjc(j) >= 0) { // Interiod, Periodic boundary
+          Dp<kOrder>::Interior(distance, dp);
+        } else if (BdCondType{-c->Adjc(j)} == BdCondType::FarField ||
+                   BdCondType{-c->Adjc(j)} == BdCondType::InFlow ||
+                   BdCondType{-c->Adjc(j)} == BdCondType::InviscWall) {
+          Dp<kOrder>::WithoutDerivative(distance, dp);
+        } else if (BdCondType{-c->Adjc(j)} == BdCondType::Symmetry) {
+          Dp<kOrder>::Symmetry(distance, dp);
         } else {
           PetscPrintf(PETSC_COMM_SELF, "Unknown BC types(%D)\n", -(c->Adjc(j)));
         }
@@ -100,18 +100,14 @@ class VrApproach
         e->Integrate([&](const Node& node) {
           return GetVecAt(*c, node.data(), distance);
         }, &(block[offset[i]+j].b_sub));
-        // cout << block[offset[i]+j].b_sub.transpose() << endl << endl;
       }
       A_inv[i] = A_inv[i].inverse();
-      cout << A_inv[i] << endl << endl;
     }
   }
   void CalculateBlockC(const MeshType& mesh) {
     for (int i = 0; i < mesh.NumLocalCells(); ++i) {
       auto c = mesh.cell[i].get();
       for (int j = 0; j < c->nCorner(); ++j) {
-        // cout << A_inv[i]  << endl;
-        // cout << B_mat[c->Edge(j)] << endl << endl;
         if (c->Adjc(j) < i) {
           block[offset[i]+j].C_mat = A_inv[i] * B_mat[c->Edge(j)];
         } else {
