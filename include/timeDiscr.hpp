@@ -24,26 +24,35 @@ class RK3TS
  public:
   RK3TS() = default;
   /* Before Calculation */
-  void SetDM(DM dm) { dm_ = &dm; }
   void SetTimeEndAndSetpNum(Real tEnd, int nStep) {
     tEnd_ = tEnd; nStep_ = nStep;
     dt = tEnd_ / nStep_;
   }
   void SetSolverContext(void* ctx) { ctx_ = ctx; }
   void SetOutputDirModelName(const string& dir_model) { dir_model_ = dir_model; }
+  void SetOutputInterval(int interval) { interval_ = interval; }
   void SetMonitor(function<void(DM, Vec, const char*, PetscViewer)>output) {
     Output = output;
-    PetscViewerCreate(PetscObjectComm((PetscObject)dm_), &viewer);
-    PetscViewerSetType(viewer, PETSCVIEWERVTK);
   }
   void SetRHSFunction(function<void(Real, Vec, Vec, void*)> rhs) { Rhs = rhs; }
-  void SetTimeStep(Real dt) { dt = dt; }
   void SetComputeInitialCondition(void(*init) (Vec)) { Init = init; }
   /* During Calculation */
-  void Solver(Vec U) {
+  void Solver(DM dm, Vec U) {
+
+    PetscViewer viewer;
+    PetscViewerCreate(PetscObjectComm((PetscObject)dm), &viewer);
+    PetscViewerSetType(viewer, PETSCVIEWERVTK);
+    auto filename = dir_model_ + "."+ to_string(0) + ".vtu";
+    Output(dm, U, filename.data(), viewer);
     for (int i = 0; i < nStep_; ++i) {
       TimeStepping(U);
+      if (i % interval_ == 0) {
+        auto filename = dir_model_ + "."+ to_string(i) + ".vtu";
+        Output(dm, U, filename.data(), viewer);
+      }
+      PetscPrintf(PETSC_COMM_WORLD, "Progress: %D / %D\n", i, nStep_);
     }
+    PetscViewerDestroy(&viewer);
   }
   /* After Calculation */
 
@@ -70,10 +79,8 @@ class RK3TS
   }
 
  private:
-  int nStep_;
-  DM* dm_;
+  int nStep_, interval_;
   void* ctx_;
-  PetscViewer viewer;
   Real tEnd_, dt;
   string dir_model_;
   function<void(Vec)> Init;
