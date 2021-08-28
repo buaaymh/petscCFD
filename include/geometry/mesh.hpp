@@ -95,12 +95,9 @@ class Mesh
       for (int j = 0; j < cell[i]->nCorner(); ++j) {
         auto e = edge[cell[i]->Edge(j)].get();
         if (e->left == cell[i].get()) {
-          if (e->right != nullptr) { cell[i]->SetAdjc(j, e->right->I()); }
+          if (e->right) { cell[i]->SetAdjc(j, e->right->I()); }
           else { int type = dict.at(e->I()); cell[i]->SetAdjc(j, -type);}
-        } else {
-          if (e->left != nullptr) { cell[i]->SetAdjc(j, e->left->I()); }
-          else { int type = dict.at(e->I()); cell[i]->SetAdjc(j, -type);}
-        }
+        } else { cell[i]->SetAdjc(j, e->left->I()); }
       }
     }
   }
@@ -142,8 +139,8 @@ class Mesh
       const int* vPoints;
       DMPlexGetCone(dm, e, &vPoints);
       auto edge_ptr = make_unique<EdgeType>(e-eStart,
-                                                node.at(vPoints[0]-vStart),
-                                                node.at(vPoints[1]-vStart));
+                                            node.at(vPoints[0]-vStart),
+                                            node.at(vPoints[1]-vStart));
       edge.emplace_back(move(edge_ptr));
     }
     /* Construct Cells */

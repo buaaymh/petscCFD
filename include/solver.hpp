@@ -25,6 +25,19 @@
 
 using namespace std;
 
+struct User {
+  int           order = 2;
+  string        filename = "medium.msh";
+  string        model = "box";
+  Real          cfl = 1.0, tEnd = 1.0, output_interval = 1.0;
+
+  static constexpr auto InitFunc = [](int dim, const Real* coord, int Nf, Real* u) {
+    for (int i = 0; i < Nf; i++) {
+      u[i] = Sin(2 * coord[0] * PI);
+    }
+  };
+};
+
 template<int kOrder, class Physics>
 class Solver
 {
@@ -47,7 +60,7 @@ class Solver
     const BC* bc = (const BC*) ctx;
     bndConds.InitializeBndConds(mesh.dm, bc);
     bndConds.ClassifyEdges(mesh);
-    bndConds.PreProcess();
+    for (auto& [type, bd] : bndConds.bdGroup) { bd->PreProcess(); }
     mesh.UpdateCellNeighbs(bndConds.types);
   }
   void InitializeDS() {
@@ -58,21 +71,23 @@ class Solver
     vrApproach.CalculateAinvs(mesh);
     vrApproach.CalculateBlockC(mesh);
   }
-  void InitializeTS() {
-    ts.SetDM(mesh.dm);
+  void InitializeTS(const void* ctx) {
+    const User* user = (const User*) ctx;
+    const string dir{OUTPUT_DIR};
+
     ts.SetSolverContext(this);
-    ts.SetTimeEndAndSetpNum(1.0, 4);
+    ts.SetTimeEndAndSetpNum(1.0, 20);
+    ts.SetOutputInterval(1);
+    ts.SetOutputDirModelName(dir + user->model);
   }
   void InitializeSolution(function<void(int dim, const Real*, int, Real*)>func) {
     Vec         X;
     int         nCell = mesh.CountCells(), Nf = Physics::nEqual;
     Real*       solution;
-    Real*       coord;
 
     DMGetLocalVector(mesh.dm, &X);
     VecGetArray(X, &solution);
     for (int i = 0; i < nCell; ++i) {
-      PetscPrintf(PETSC_COMM_SELF, "(%f, %f)\n", mesh.cell[i]->Center()(0), mesh.cell[i]->Center()(1));
       func(2, mesh.cell[i]->Center().data(), Nf, solution+i*Nf);
     }
     VecRestoreArray(X, &solution);
@@ -80,49 +95,44 @@ class Solver
   }
   void CalculateScalar() {
     Vec X;
-
+    ts.SetMonitor(OutputScalar);
     ts.SetRHSFunction(RHSFunctionScalar);
     DMGetLocalVector(mesh.dm, &X);
-    VecView(X, PETSC_VIEWER_STDOUT_SELF);
-    ts.Solver(X);
-    VecView(X, PETSC_VIEWER_STDOUT_SELF);
+    ts.Solver(mesh.dm, X);
     DMRestoreLocalVector(mesh.dm, &X);
   }
 
-
  private:
+  static constexpr auto OutputScalar = [](DM dm, Vec U_local,
+      const char* filename, PetscViewer viewer) {
+    Vec U_global;
+    PetscViewerFileSetName(viewer, filename);
+    DMGetGlobalVector(dm, &U_global);
+    PetscObjectSetName((PetscObject) U_global, "");
+    DMLocalToGlobal(dm, U_local, INSERT_VALUES, U_global);
+    VecView(U_global, viewer);
+    DMRestoreGlobalVector(dm, &U_global);
+  };
   static constexpr auto RHSFunctionScalar = [](Real t, Vec U, Vec RHS, void *ctx) {
     using Flux = Eigen::Matrix<Real, Physics::nEqual, 1>;
-    Solver<kOrder, Physics>*      solver = (Solver<kOrder, Physics>*) ctx;
+    Solver<kOrder, Physics>*      solver = static_cast<Solver<kOrder, Physics>*>(ctx);
     const Real*                   cv;
     Real*                         rhs;
     const int                     nEqual = Physics::nEqual;
-    Flux                          fc;
 
     VecZeroEntries(RHS);
     VecGetArrayRead(U, &cv);
     VecGetArray(RHS, &rhs);
-
-    // for (auto& e : solver->mesh.interior) {
-    //   fc = Flux::Zero();
-    //   auto cell_l = e->left;
-    //   auto cell_r = e->right;
-    //   int i = cell_l->I(), j = cell_r->I();
-    //   Real normal[2] = {e->Nx(), e->Ny()};
-    //   e->Integrate([&](const Node& p) {
-    //     Real* u_l = cv[nEqual*i];
-    //     Real* u_r = cv[nEqual*j];
-    //     return Physics::Riemann(2, p.data(), u_l, u_r, normal);
-    //   }, &fc);
-    //   for (int k = 0; k < nEqual; ++k) {
-    //     rhs[nEqual*i+k] += fc(k);
-    //     rhs[nEqual*j+k] -= fc(k);
-    //   }
-    // }
-    // for (auto& [type, bd] : solver->bndConds.bdGroup) {
-    //   bd.UpdateRHS(cv, rhs);
-    // }
-
+    for (auto& [type, bd] : solver->bndConds.bdGroup) {
+      bd->UpdateRHS(cv, rhs, solver);
+    }
+    for (auto& c : solver->mesh.cell) {
+      int   start = c->I() * nEqual;
+      Real  vol = c->Measure();
+      for (int i = 0; i < nEqual; ++i) { rhs[start+i] /= vol; }
+    }
+    PetscSFScatterBegin(solver->mesh.sf, MPIU_REAL, rhs, rhs);
+    PetscSFScatterEnd(solver->mesh.sf, MPIU_REAL, rhs, rhs);
     VecRestoreArrayRead(U, &cv);
     VecRestoreArray(RHS, &rhs);
   };

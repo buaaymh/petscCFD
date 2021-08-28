@@ -37,15 +37,39 @@ struct EdgeGroup {
   using Edge = typename Mesh::EdgeType;
   struct cmp {bool operator()(Edge* a, Edge* b) const {return a->I() < b->I();}};
   using EdgeSet = set<Edge*, cmp>;
-  virtual void PreProcess() = 0;
+  static constexpr int nEqual = Physics::nEqual;
+  using Flux = Eigen::Matrix<Real, nEqual, 1>;
+  virtual void PreProcess() {
+    for (auto& e : edge) {
+      auto dist = (e->left->Center() - e->Center()).norm();
+      e->SetDist(dist);
+    }
+  }
   virtual void CalculateBmats(VrApproach<kOrder, Physics>& vr) const {
     for (auto& e : edge) {
       Real normal[2] = {e->Nx(), e->Ny()}; Real distance = e->Distance();
-      Real dp[kOrder+1]; Dp<kOrder>::GetDpArrayInterior(distance, dp);
+      Real dp[kOrder+1]; Dp<kOrder>::Interior(distance, dp);
       e->Integrate([&](const Node& node) {
         return vr.GetMatAt(node.data(), *(e->left), *(e->right), normal, dp);
       }, &vr.B_mat[e->I()]);
     }
+  }
+  static void InteriorRHS(const Edge* e, const Real* cv, Real* rhs) {
+    auto cell_l = e->left;
+    auto cell_r = e->right;
+    int lStart = nEqual*cell_l->I(), rStart = nEqual*cell_r->I();
+    Flux fc = Flux::Zero();
+    const Real normal[2] = {e->Nx(), e->Ny()};
+    e->Integrate([&](const Node& p){
+      const Real* U_l = cv+lStart;
+      const Real* U_r = cv+rStart;
+      return Physics::Riemann(2, p.data(), normal, U_l, U_r);
+    }, &fc);
+    for (int i = 0; i < nEqual; ++i) { rhs[lStart+i] -= fc(i); }
+    for (int i = 0; i < nEqual; ++i) { rhs[rStart+i] += fc(i); }
+  }
+  virtual void UpdateRHS(const Real* cv, Real* rhs, void* ctx) const {
+    for (auto& e : edge) { InteriorRHS(e, cv, rhs); }
   }
   EdgeSet edge;
 };
@@ -70,6 +94,8 @@ struct Periodic : public EdgeGroup<kOrder,Physics> {
   using Mesh = typename SolverType::MeshType;
   using Edge = typename Mesh::EdgeType;
   using Cell = typename Mesh::CellType;
+  static constexpr int nEqual = Physics::nEqual;
+  using Flux = Eigen::Matrix<Real, nEqual, 1>;
   // Construction:
   Periodic(const Real* lower, const Real* upper) : Base() {
     lower_[0] = lower[0]; lower_[1] = lower[1];
@@ -96,63 +122,29 @@ struct Periodic : public EdgeGroup<kOrder,Physics> {
     for (int i = 0; i < bdL.size(); ++i) { MatchEdges(bdL[i], bdR[i]); }
     for (int i = 0; i < bdB.size(); ++i) { MatchEdges(bdB[i], bdT[i]); }
   }
+  virtual void UpdateRHS(const Real* cv, Real* rhs, void* ctx) const {
+    const SolverType* solver = static_cast<const SolverType*>(ctx);
+    for (auto& e : bdL) { Base::InteriorRHS(e, cv, rhs); }
+    for (auto& e : bdB) { Base::InteriorRHS(e, cv, rhs); }
+  }
   void MatchEdges(Edge* a, Edge* b) {
     auto ab = Node(a->Center() - b->Center());
-    if (a->left == nullptr) {
-      if (b->right == nullptr) {
-        auto b_right = make_unique<Cell>(*(a->right));
-        auto a_left = make_unique<Cell>(*(b->left));
-        a_left->Move(ab); b_right->Move(-ab);
-        a->left = a_left.get(); b->right = b_right.get();
-        ghost.emplace_back(move(a_left));
-        ghost.emplace_back(move(b_right));
-      } else {
-        auto b_left = make_unique<Cell>(*(a->right));
-        auto a_left = make_unique<Cell>(*(b->right));
-        a_left->Move(ab); b_left->Move(-ab);
-        a->left = a_left.get(); b->left = b_left.get();
-        ghost.emplace_back(move(a_left));
-        ghost.emplace_back(move(b_left));
-      }
-    } else {
-      if (b->right == nullptr) {
-        auto b_right = make_unique<Cell>(*(a->left));
-        auto a_right = make_unique<Cell>(*(b->left));
-        a_right->Move(ab); b_right->Move(-ab);
-        a->right = a_right.get(); b->right = b_right.get();
-        ghost.emplace_back(move(a_right));
-        ghost.emplace_back(move(b_right));
-      } else {
-        auto b_left = make_unique<Cell>(*(a->left));
-        auto a_right = make_unique<Cell>(*(b->right));
-        a_right->Move(ab); b_left->Move(-ab);
-        a->right = a_right.get(); b->left = b_left.get();
-        ghost.emplace_back(move(a_right));
-        ghost.emplace_back(move(b_left));
-      }
-    }
+    auto b_right = make_unique<Cell>(*(a->left));
+    auto a_right = make_unique<Cell>(*(b->left));
+    a_right->Move(ab); b_right->Move(-ab);
+    a->right = a_right.get(); b->right = b_right.get();
+    ghost.emplace_back(move(a_right));
+    ghost.emplace_back(move(b_right));
     auto dist = (a->left->Center() - a->right->Center()).norm();
     a->SetDist(dist); b->SetDist(dist);
   }
   vector<unique_ptr<Cell>> ghost;
   vector<Edge*> bdL, bdR, bdB, bdT;
-  Real lower_[2];
-  Real upper_[2];
+  Real lower_[2], upper_[2];
 };
 template<int kOrder, class Physics>
 struct OutFlow : public EdgeGroup<kOrder,Physics> {
-  // Types:
-  using Base = EdgeGroup<kOrder,Physics>;
-  // Construction:
-  OutFlow() : Base() {}
-  void PreProcess() override {
-    for ( auto& e : Base::edge) {
-      if (e->left == nullptr) { e->left = e->right; }
-      else { e->right = e->left; }
-      auto dist = (e->left->Center() - e->Center()).norm();
-      e->SetDist(dist);
-    }
-  }
+  void CalculateBmats(VrApproach<kOrder, Physics>& vr) const override {}
 };
 template<int kOrder, class Physics>
 struct InFlow : public EdgeGroup<kOrder,Physics> {
@@ -164,24 +156,11 @@ struct InFlow : public EdgeGroup<kOrder,Physics> {
   using Coefs = Eigen::Matrix<float, Mesh::nCoef * Physics::nEqual, 1>;
   // Construction:
   InFlow(void(*func) (Real, const Real*, Real*)) : Base(), func_(func) {}
-  void PreProcess() override {
-    for (auto& e : Base::edge) {
-      bdState.emplace(e->I(), State::Zero());
-      bdCoef.emplace(e->I(), Coefs::Zero());
-      if (e->left == nullptr) {
-        Real dist = (e->right->Center() - e->Center()).norm();
-        e->SetDist(dist);
-      } else {
-        Real dist = (e->left->Center() - e->Center()).norm();
-        e->SetDist(dist);
-      }
-    }
-  }
   void CalculateBmats(VrApproach<kOrder, Physics>& vr) const override {
     for (auto& e : Base::edge) {
       Real normal[2] = {e->Nx(), e->Ny()}; Real distance = e->Distance();
-        Real dp[kOrder+1]; Dp<kOrder>::GetDpArrayP0(distance, dp);
-        auto c = e->left; if (e->right) c = e->right;
+        Real dp[kOrder+1]; Dp<kOrder>::WithoutDerivative(distance, dp);
+        auto c = e->left;
         e->Integrate([&](const Node& node) {
           return vr.GetMatAt(node.data(), *c, *c, normal, dp);
         }, &vr.B_mat[e->I()]);
@@ -199,22 +178,11 @@ struct FarField : public EdgeGroup<kOrder,Physics> {
     refer_ = new Real[nVals];
     for (int i = 0; i < nVals; ++i) { refer_[i] = reference[i]; }
   }
-  void PreProcess() override {
-    for (auto& e : Base::edge) {
-      if (e->left == nullptr) {
-        Real dist = (e->right->Center() - e->Center()).norm();
-        e->SetDist(dist);
-      } else {
-        Real dist = (e->left->Center() - e->Center()).norm();
-        e->SetDist(dist);
-      }
-    }
-  }
   void CalculateBmats(VrApproach<kOrder, Physics>& vr) const override {
     for (auto& e : Base::edge) {
       Real normal[2] = {e->Nx(), e->Ny()}; Real distance = e->Distance();
-        Real dp[kOrder+1]; Dp<kOrder>::GetDpArrayP0(distance, dp);
-        auto c = e->left; if (e->right) c = e->right;
+        Real dp[kOrder+1]; Dp<kOrder>::WithoutDerivative(distance, dp);
+        auto c = e->left;
         e->Integrate([&](const Node& node) {
           return vr.GetMatAt(node.data(), *c, *c, normal, dp);
         }, &vr.B_mat[e->I()]);
@@ -228,22 +196,11 @@ struct InviscWall : public EdgeGroup<kOrder,Physics> {
   // Types:
   using Base = EdgeGroup<kOrder,Physics>;
   InviscWall() : Base() {}
-  void PreProcess() override {
-    for (auto& e : Base::edge) {
-      if (e->left == nullptr) {
-        Real dist = (e->right->Center() - e->Center()).norm();
-        e->SetDist(dist);
-      } else {
-        Real dist = (e->left->Center() - e->Center()).norm();
-        e->SetDist(dist);
-      }
-    }
-  }
   void CalculateBmats(VrApproach<kOrder, Physics>& vr) const override {
     for (auto& e : Base::edge) {
       Real normal[2] = {e->Nx(), e->Ny()}; Real distance = e->Distance();
-        Real dp[kOrder+1]; Dp<kOrder>::GetDpArrayP0(distance, dp);
-        auto c = e->left; if (e->right) c = e->right;
+        Real dp[kOrder+1]; Dp<kOrder>::WithoutDerivative(distance, dp);
+        auto c = e->left;
         e->Integrate([&](const Node& node) {
           return vr.GetMatAt(node.data(), *c, *c, normal, dp);
         }, &vr.B_mat[e->I()]);
@@ -256,9 +213,7 @@ struct BndConds {
   using SolverType = Solver<kOrder, Physics>;
   using Mesh = typename SolverType::MeshType;
   BndConds() = default;
-  void PreProcess() {
-    for (auto& [type, bd] : bdGroup) { bd->PreProcess(); }
-  }
+  void PreProcess() { for (auto& [type, bd] : bdGroup) { bd->PreProcess(); } }
   void InitializeBndConds(DM dm, const BC* bc) {
     IS                bdTypeIS;
     DMLabel           label;
@@ -286,19 +241,21 @@ struct BndConds {
       case BdCondType::FarField:
         bdGroup[types[i]] = make_unique<FarField<kOrder,Physics>>(bc->refVal, 1);
         break;
+      case BdCondType::InviscWall:
+        bdGroup[types[i]] = make_unique<InviscWall<kOrder,Physics>>();
+        break;
       default:
         break;
       }
     }
   }
   void ClassifyEdges(Mesh& mesh) {
-    int               eStart, eEnd;
+    int               eStart, eEnd, type;
     DMPlexGetDepthStratum(mesh.dm, 1, &eStart, &eEnd); /* edges */
     for (int i = 0; i < mesh.NumLocalCells(); ++i) {
       for(int j = 0; j < mesh.cell[i]->nCorner(); ++j) {
         int e = mesh.cell[i]->Edge(j);
-        if (mesh.edge[e]->left == nullptr || mesh.edge[e]->right == nullptr) {
-          int type;
+        if (mesh.edge[e]->right == nullptr) {
           DMGetLabelValue(mesh.dm, "Face Sets", e+eStart, &type);
           types.emplace(e, type);
           bdGroup[type]->edge.insert(mesh.edge[e].get());
