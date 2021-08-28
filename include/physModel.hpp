@@ -24,7 +24,7 @@ struct Linear {
   using State = Flux;
   static unordered_map<string, int> CreateFieldDiscription() {
     unordered_map<string, int>  field_desc;
-    field_desc.emplace("Density", 1);
+    field_desc.emplace("U", 1);
     return field_desc;
   }
   static Flux Riemann(int dim, const Real* coord, const Real* normal,

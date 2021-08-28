@@ -31,14 +31,6 @@ using namespace std;
 /// @return       EXIT_SUCCESS or an error code
 ///
 
-struct User {
-  int           order = 2;
-  string        filename = "medium.msh";
-  string        model = "box";
-  Real          dt = 1.0, tEnd = 1.0;
-  int           output_rate = 1;
-};
-
 template<int kOrder>
 class Advection {
  public:
@@ -51,6 +43,9 @@ class Advection {
     solver.SetupDataLayout();
     solver.SetBoundaryConditions(&bc_);
     solver.InitializeDS();
+    solver.InitializeTS(user_);
+    solver.InitializeSolution(User::InitFunc);
+    solver.CalculateScalar();
   }
  private:
   BC bc_;

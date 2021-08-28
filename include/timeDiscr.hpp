@@ -38,23 +38,23 @@ class RK3TS
   void SetComputeInitialCondition(void(*init) (Vec)) { Init = init; }
   /* During Calculation */
   void Solver(DM dm, Vec U) {
-
-    PetscViewer viewer;
+    PetscViewer     viewer;
+    Real            t_current;
     PetscViewerCreate(PetscObjectComm((PetscObject)dm), &viewer);
     PetscViewerSetType(viewer, PETSCVIEWERVTK);
     auto filename = dir_model_ + "."+ to_string(0) + ".vtu";
     Output(dm, U, filename.data(), viewer);
-    for (int i = 0; i < nStep_; ++i) {
+    for (int i = 1; i <= nStep_; ++i) {
       TimeStepping(U);
+      t_current += dt;
       if (i % interval_ == 0) {
         auto filename = dir_model_ + "."+ to_string(i) + ".vtu";
         Output(dm, U, filename.data(), viewer);
       }
-      PetscPrintf(PETSC_COMM_WORLD, "Progress: %D / %D\n", i, nStep_);
+      PetscPrintf(PETSC_COMM_WORLD, "Progress: %D/%D at %.2fs\n", i, nStep_, t_current);
     }
     PetscViewerDestroy(&viewer);
   }
-  /* After Calculation */
 
  private:
   void TimeStepping(Vec U) {
@@ -69,7 +69,7 @@ class RK3TS
     Rhs(dt, U_old, RHS, ctx_);
     VecAXPY(U_old, dt, RHS);
     VecAXPBY(U_old, 0.75, 0.25, U);
-    /******** Step 2 ********/
+    /******** Step 3 ********/
     Rhs(dt, U_old, RHS, ctx_);
     VecAXPY(U_old, dt, RHS);
     VecAXPBY(U, 2.0/3, 1.0/3, U_old);
