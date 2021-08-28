@@ -84,6 +84,8 @@ class VrApproach
         Real dp[kOrder+1];
         if (c->Adjc(j) >= 0) { // Interiod, Periodic boundary
           Dp<kOrder>::Interior(distance, dp);
+        } else if (BdCondType{-c->Adjc(j)} == BdCondType::OutFlow) {
+          for (int i = 0; i <= kOrder; ++i) { dp[i] = 0; }
         } else if (BdCondType{-c->Adjc(j)} == BdCondType::FarField ||
                    BdCondType{-c->Adjc(j)} == BdCondType::InFlow ||
                    BdCondType{-c->Adjc(j)} == BdCondType::InviscWall) {
@@ -134,10 +136,6 @@ class VrApproach
   vector<Matrix> B_mat;
   vector<Column> b_col;
   vector<VrBlock> block;
-
-  // functions
-  VrApproach() = default;
-  void BuildBlock(const MeshType& mesh, const BndCondsType& bndcond);
 
  private:
   static Column GetVecAt(const Cell& a, const Real* coord, Real distance) {
