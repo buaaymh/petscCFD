@@ -95,9 +95,14 @@ class Mesh
       for (int j = 0; j < cell[i]->nCorner(); ++j) {
         auto e = edge[cell[i]->Edge(j)].get();
         if (e->left == cell[i].get()) {
-          if (e->right) { cell[i]->SetAdjc(j, e->right->I()); }
-          else { int type = dict.at(e->I()); cell[i]->SetAdjc(j, -type);}
-        } else { cell[i]->SetAdjc(j, e->left->I()); }
+          if (e->right) {
+            cell[i]->SetAdjc(j, e->right->I());
+          } else {
+            int type = dict.at(e->I());
+            cell[i]->SetAdjc(j, -type);}
+        } else {
+          cell[i]->SetAdjc(j, e->left->I());
+        }
       }
     }
   }

@@ -20,6 +20,7 @@
 #include <iostream>
 
 using namespace std;
+using namespace Eigen;
 
 struct BC {
   // Periodic Boundary
@@ -38,6 +39,7 @@ struct EdgeGroup {
   struct cmp {bool operator()(Edge* a, Edge* b) const {return a->I() < b->I();}};
   using EdgeSet = set<Edge*, cmp>;
   static constexpr int nEqual = Physics::nEqual;
+  using ConVar = Matrix<Real, nEqual, Dynamic>;
   using Flux = Eigen::Matrix<Real, nEqual, 1>;
   virtual void PreProcess() {
     for (auto& e : edge) {
@@ -45,6 +47,7 @@ struct EdgeGroup {
       e->SetDist(dist);
     }
   }
+  virtual void UpdateVrbCol(const Real* cv, const Mesh& mesh, VrApproach<kOrder, Physics>& vr) const {}
   virtual void CalculateBmats(VrApproach<kOrder, Physics>& vr) const {
     for (auto& e : edge) {
       Real normal[2] = {e->Nx(), e->Ny()}; Real distance = e->Distance();
@@ -54,21 +57,18 @@ struct EdgeGroup {
       }, &vr.B_mat[e->I()]);
     }
   }
-  static void InteriorRHS(const Edge* e, const Real* cv, Real* rhs) {
-    auto cell_l = e->left;
-    auto cell_r = e->right;
-    int lStart = nEqual*cell_l->I(), rStart = nEqual*cell_r->I();
+  static void InteriorRHS(const Edge* e, const ConVar& cv, ConVar& rhs) {
+    auto cell_l = e->left, cell_r = e->right;
     Flux fc = Flux::Zero();
     const Real normal[2] = {e->Nx(), e->Ny()};
     e->Integrate([&](const Node& p){
-      const Real* U_l = cv+lStart;
-      const Real* U_r = cv+rStart;
-      return Physics::Riemann(2, p.data(), normal, U_l, U_r);
+      return Physics::Riemann(2, p.data(), normal, cv.col(cell_l->I()).data(),
+                                                   cv.col(cell_r->I()).data());
     }, &fc);
-    for (int i = 0; i < nEqual; ++i) { rhs[lStart+i] -= fc(i); }
-    for (int i = 0; i < nEqual; ++i) { rhs[rStart+i] += fc(i); }
+    rhs.col(cell_l->I()) -= fc;
+    rhs.col(cell_r->I()) += fc;
   }
-  virtual void UpdateRHS(const Real* cv, Real* rhs, void* ctx) const {
+  virtual void UpdateRHS(const ConVar& cv, ConVar& rhs, void* ctx) const {
     for (auto& e : edge) { InteriorRHS(e, cv, rhs); }
   }
   EdgeSet edge;
@@ -95,6 +95,7 @@ struct Periodic : public EdgeGroup<kOrder,Physics> {
   using Edge = typename Mesh::EdgeType;
   using Cell = typename Mesh::CellType;
   static constexpr int nEqual = Physics::nEqual;
+  using ConVar = Matrix<Real, nEqual, Dynamic>;
   using Flux = Eigen::Matrix<Real, nEqual, 1>;
   // Construction:
   Periodic(const Real* lower, const Real* upper) : Base() {
@@ -122,7 +123,7 @@ struct Periodic : public EdgeGroup<kOrder,Physics> {
     for (int i = 0; i < bdL.size(); ++i) { MatchEdges(bdL[i], bdR[i]); }
     for (int i = 0; i < bdB.size(); ++i) { MatchEdges(bdB[i], bdT[i]); }
   }
-  virtual void UpdateRHS(const Real* cv, Real* rhs, void* ctx) const {
+  virtual void UpdateRHS(const ConVar& cv, ConVar& rhs, void* ctx) const {
     const SolverType* solver = static_cast<const SolverType*>(ctx);
     for (auto& e : bdL) { Base::InteriorRHS(e, cv, rhs); }
     for (auto& e : bdB) { Base::InteriorRHS(e, cv, rhs); }
@@ -212,6 +213,8 @@ struct BndConds {
   // Type:
   using SolverType = Solver<kOrder, Physics>;
   using Mesh = typename SolverType::MeshType;
+  using Group = EdgeGroup<kOrder,Physics>;
+  using ConVar = Matrix<Real, Physics::nEqual, Dynamic>;
   BndConds() = default;
   void PreProcess() { for (auto& [type, bd] : bdGroup) { bd->PreProcess(); } }
   void InitializeBndConds(DM dm, const BC* bc) {
@@ -263,8 +266,10 @@ struct BndConds {
       }
     }
   }
-  unordered_map<int, int> types;
-  unordered_map<int, unique_ptr<EdgeGroup<kOrder,Physics>>> bdGroup;
-  ~BndConds() = default;
+  // Data:
+  ConVar                                cv;
+  unordered_map<int, int>               types;
+  unordered_map<int, unique_ptr<Group>> bdGroup;
+
 };
 #endif // INCLUDE_BNDCONDS_HPP_

@@ -18,10 +18,13 @@
 #include <functional>
 
 using namespace std;
+using namespace Eigen;
 
+template<int kOrder, class Physics>
 class RK3TS
 {
  public:
+  using ConVar = Matrix<Real, Physics::nEqual, Dynamic>;
   RK3TS() = default;
   /* Before Calculation */
   void SetTimeEndAndSetpNum(Real tEnd, int nStep) {
@@ -31,25 +34,25 @@ class RK3TS
   void SetSolverContext(void* ctx) { ctx_ = ctx; }
   void SetOutputDirModelName(const string& dir_model) { dir_model_ = dir_model; }
   void SetOutputInterval(int interval) { interval_ = interval; }
-  void SetMonitor(function<void(DM, Vec, const char*, PetscViewer)>output) {
+  void SetMonitor(function<void(DM, const ConVar&, const char*, PetscViewer)>output) {
     Output = output;
   }
-  void SetRHSFunction(function<void(Real, Vec, Vec, void*)> rhs) { Rhs = rhs; }
+  void SetRHSFunction(function<void(Real, const ConVar&, ConVar&, void*)> rhs) { Rhs = rhs; }
   void SetComputeInitialCondition(void(*init) (Vec)) { Init = init; }
   /* During Calculation */
-  void Solver(DM dm, Vec U) {
+  void Solver(DM dm, ConVar& cv) {
     PetscViewer     viewer;
     Real            t_current;
     PetscViewerCreate(PetscObjectComm((PetscObject)dm), &viewer);
     PetscViewerSetType(viewer, PETSCVIEWERVTK);
     auto filename = dir_model_ + "."+ to_string(0) + ".vtu";
-    Output(dm, U, filename.data(), viewer);
+    Output(dm, cv, filename.data(), viewer);
     for (int i = 1; i <= nStep_; ++i) {
-      TimeStepping(U);
+      TimeStepping(cv);
       t_current += dt;
       if (i % interval_ == 0) {
         auto filename = dir_model_ + "."+ to_string(i) + ".vtu";
-        Output(dm, U, filename.data(), viewer);
+        Output(dm, cv, filename.data(), viewer);
       }
       PetscPrintf(PETSC_COMM_WORLD, "Progress: %D/%D at %.2fs\n", i, nStep_, t_current);
     }
@@ -57,25 +60,20 @@ class RK3TS
   }
 
  private:
-  void TimeStepping(Vec U) {
-    Vec     U_old, RHS;
-
-    VecDuplicate(U, &U_old); VecDuplicate(U, &RHS);
+  void TimeStepping(ConVar& cv) {
+    ConVar cv_stage = cv;
+    ConVar cd_dt(cv.cols());
     /******** Step 1 ********/
-    VecCopy(U, U_old); 
-    Rhs(dt, U_old, RHS, ctx_);
-    VecAXPY(U_old, dt, RHS);
+    Rhs(dt, cv_stage, cd_dt, ctx_);
+    cv_stage += cd_dt * dt;
     /******** Step 2 ********/
-    Rhs(dt, U_old, RHS, ctx_);
-    VecAXPY(U_old, dt, RHS);
-    VecAXPBY(U_old, 0.75, 0.25, U);
+    Rhs(dt, cv_stage, cd_dt, ctx_);
+    cv_stage += cd_dt * dt;
+    cv_stage = 0.25 * cv_stage + 0.75 * cv;
     /******** Step 3 ********/
-    Rhs(dt, U_old, RHS, ctx_);
-    VecAXPY(U_old, dt, RHS);
-    VecAXPBY(U, 2.0/3, 1.0/3, U_old);
-    /* Free the space */
-    VecDestroy(&U_old);
-    VecDestroy(&RHS);
+    Rhs(dt, cv_stage, cd_dt, ctx_);
+    cv_stage += cd_dt * dt;
+    cv = 2.0/3 * cv_stage + 1.0/3 * cv;
   }
 
  private:
@@ -84,8 +82,8 @@ class RK3TS
   Real tEnd_, dt;
   string dir_model_;
   function<void(Vec)> Init;
-  function<void(Real, Vec, Vec, void*)> Rhs;
-  function<void(DM, Vec, const char*, PetscViewer)> Output;
+  function<void(Real, const ConVar&, ConVar&, void*)> Rhs;
+  function<void(DM, const ConVar&, const char*, PetscViewer)> Output;
 };
 
 #endif // INCLUDE_TIMEDISCR_HPP_

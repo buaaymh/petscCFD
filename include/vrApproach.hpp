@@ -25,8 +25,9 @@ class VrApproach
 {
   static constexpr int nCoef = (kOrder+1)*(kOrder+2)/2-1; /**< Dofs -1 */
  public:
-  using Matrix = Eigen::Matrix<float, nCoef, nCoef>;
-  using Column = Eigen::Matrix<float, nCoef, 1>;
+  using Matrix = Eigen::Matrix<Real, nCoef, nCoef>;
+  using Column = Eigen::Matrix<Real, nCoef, 1>;
+  using EqualCol = Eigen::Matrix<Real, nCoef, Physics::nEqual>;
   using MeshType = Mesh<kOrder>;
   using Cell = typename MeshType::CellType;
   using FuncTable = typename Cell::BasisF;
@@ -65,7 +66,7 @@ class VrApproach
     int n_cell = mesh.NumLocalCells(), n_edge = mesh.CountEdges();
     A_inv = vector<Matrix>(n_cell, Matrix::Zero());
     B_mat = vector<Matrix>(n_edge, Matrix::Zero());
-    b_col = vector<Column>(n_cell, Column::Zero());
+    b_col = vector<EqualCol>(n_cell, EqualCol::Zero());
     offset.reserve(n_cell);
     offset.emplace_back(0);
     for (int i = 1; i < n_cell; ++i) {
@@ -134,7 +135,7 @@ class VrApproach
   vector<int> offset;
   vector<Matrix> A_inv;
   vector<Matrix> B_mat;
-  vector<Column> b_col;
+  vector<EqualCol> b_col;
   vector<VrBlock> block;
 
  private:

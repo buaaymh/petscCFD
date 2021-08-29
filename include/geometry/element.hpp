@@ -99,8 +99,8 @@ class Cell<1>
  public:
   // Types:
   static constexpr int numCoef = 2;
-  using Vector = Eigen::Matrix<float, 2, 1>;
-  using BasisF = Eigen::Matrix<float, 2, 2>;
+  using Vector = Eigen::Matrix<Real, 2, 1>;
+  using BasisF = Eigen::Matrix<Real, 2, 2>;
   // For Triangle
   Cell(int id, const Node& a, const Node& b, const Node& c) : id_(id) {
     measure_ = GetMeasure(a, b, c);
@@ -182,8 +182,8 @@ class Cell<2> : public Cell<1>
  public:
   // Types:
   static constexpr int numCoef = 5;
-  using Vector = Eigen::Matrix<float, 5, 1>;
-  using BasisF = Eigen::Matrix<float, 5, 3>;
+  using Vector = Eigen::Matrix<Real, 5, 1>;
+  using BasisF = Eigen::Matrix<Real, 5, 3>;
   Cell(int id, const Node& a, const Node& b, const Node& c) : Cell<1>(id, a, b, c) {
     xx_ = IntegrateTri([&](Real* coord) { return Pow(F_0_0_0(coord), 2);}, a, b, c) / Measure();
     xy_ = IntegrateTri([&](Real* coord) { return F_0_0_0(coord)*F_1_0_0(coord);}, a, b, c) / Measure();
@@ -286,8 +286,8 @@ class Cell<3> : public Cell<2>
  public:
   // Types:
   static constexpr int numCoef = 9;
-  using Vector = Eigen::Matrix<float, 9, 1>;
-  using BasisF = Eigen::Matrix<float, 9, 4>;
+  using Vector = Eigen::Matrix<Real, 9, 1>;
+  using BasisF = Eigen::Matrix<Real, 9, 4>;
   Cell(int id, const Node& a, const Node& b, const Node& c) : Cell<2>(id, a, b, c) {
     xxx_ = IntegrateTri([&](const Real* coord) { return Pow(F_0_0_0(coord), 3);}, a, b, c) / Measure();
     xxy_ = IntegrateTri([&](const Real* coord) { return Pow(F_0_0_0(coord), 2)*F_1_0_0(coord);}, a, b, c) / Measure();
