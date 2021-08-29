@@ -24,15 +24,16 @@ static char help[] = "Test for mesh class in geometry.\n";
 #include "solver.hpp"
 #include "gtest/gtest.h"
 
-using namespace std;
+namespace cfd {
+  
+using std::string;
 
 class TriMeshTest : public ::testing::Test {
  protected:
-  // Solver<2,Linear>  solver = Solver<2,Linear>();
-  Mesh<2> mesh = Mesh<2>();
-  string     meshfile = "tiny.msh";
-  Real       eps{1e-8};
-  string     dir{TEST_DATA_DIR};
+  Mesh<2>   mesh = Mesh<2>();
+  string    meshfile = "tiny.msh";
+  Real      eps{1e-8};
+  string    dir{TEST_DATA_DIR};
 };
 TEST_F(TriMeshTest, ReadMesh) {
   /*
@@ -193,6 +194,9 @@ TEST_F(QuadMeshTest, ReadCell) {
   EXPECT_EQ(mesh.cell[0]->Edge(2), 2);
   EXPECT_EQ(mesh.cell[0]->Edge(3), 3);
 }
+
+}  // cfd
+
 int main(int argc, char* argv[]) {
   PetscInitialize(&argc, &argv, (char*)0, help);
   ::testing::InitGoogleTest(&argc, argv);

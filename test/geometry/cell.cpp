@@ -22,6 +22,8 @@
 #include "geometry/element.hpp"
 #include "gtest/gtest.h"
 
+namespace cfd{
+
 class TriangleTest : public ::testing::Test {
  protected:
   using T1 = Triangle<1>;
@@ -279,6 +281,9 @@ TEST_F(QuadrangleTest, ThreeDegree) {
   EXPECT_NEAR(func_move(7), quadrangle.F_7_0_0(coord), eps);
   EXPECT_NEAR(func_move(8), quadrangle.F_8_0_0(coord), eps);
 }
+
+}  // cfd
+
 int main(int argc, char* argv[]) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();

@@ -17,14 +17,15 @@
 #include <string>
 #include <functional>
 
-using namespace std;
-using namespace Eigen;
+namespace cfd {
+
+using std::function;
 
 template<int kOrder, class Physics>
 class RK3TS
 {
  public:
-  using ConVar = Matrix<Real, Physics::nEqual, Dynamic>;
+  using ConVar = Eigen::Matrix<Real, Physics::nEqual, Dynamic>;
   RK3TS() = default;
   /* Before Calculation */
   void SetTimeEndAndSetpNum(Real tEnd, int nStep) {
@@ -85,5 +86,7 @@ class RK3TS
   function<void(Real, const ConVar&, ConVar&, void*)> Rhs;
   function<void(DM, const ConVar&, const char*, PetscViewer)> Output;
 };
+
+}  // cfd
 
 #endif // INCLUDE_TIMEDISCR_HPP_

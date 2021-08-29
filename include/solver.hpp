@@ -23,7 +23,9 @@
 #include <string>
 #include "data/path.hpp"  // defines TEST_DATA_DIR
 
-using namespace std;
+namespace cfd {
+
+using std::string;
 using namespace Eigen;
 
 struct User {
@@ -47,7 +49,7 @@ class Solver
   using ConVar = Matrix<Real, Physics::nEqual, Dynamic>;
   Physics                            physics;     /**< physical model */
   MeshType                           mesh;        /**< element and geometry */
-  BndConds<kOrder, Physics>          bndConds;    /**< boundary conditions */
+  EdgeManager<kOrder, Physics>       edgeManager;    /**< boundary conditions */
   VrApproach<kOrder, Physics>        vrApproach;  /**< variational reconstruction */
   RK3TS<kOrder, Physics>             ts;
 
@@ -60,14 +62,14 @@ class Solver
 
   void SetBoundaryConditions(const void* ctx) {
     const BC* bc = (const BC*) ctx;
-    bndConds.InitializeBndConds(mesh.dm, bc);
-    bndConds.ClassifyEdges(mesh);
-    for (auto& [type, bd] : bndConds.bdGroup) { bd->PreProcess(); }
-    mesh.UpdateCellNeighbs(bndConds.types);
+    edgeManager.InitializeBndConds(mesh.dm, bc);
+    edgeManager.ClassifyEdges(mesh);
+    for (auto& [type, bd] : edgeManager.bdGroup) { bd->PreProcess(); }
+    mesh.UpdateCellNeighbs(edgeManager.types);
   }
   void InitializeDS() {
     vrApproach.AllocatorMats(mesh);
-    for (auto& [type, bd] : bndConds.bdGroup) {
+    for (auto& [type, bd] : edgeManager.bdGroup) {
       bd->CalculateBmats(vrApproach);
     }
     vrApproach.CalculateAinvs(mesh);
@@ -84,15 +86,15 @@ class Solver
   }
   void InitializeSolution(function<void(int dim, const Real*, int, Real*)>func) {
     int nCell = mesh.CountCells(), Nf = Physics::nEqual;
-    bndConds.cv.resize(nCell);
+    edgeManager.cv.resize(nCell);
     for (int i = 0; i < nCell; ++i) {
-      func(2, mesh.cell[i]->Center().data(), Nf, bndConds.cv.data()+i*Nf);
+      func(2, mesh.cell[i]->Center().data(), Nf, edgeManager.cv.data()+i*Nf);
     }
   }
   void CalculateScalar() {
     ts.SetMonitor(OutputScalar);
     ts.SetRHSFunction(RHSFunction);
-    ts.Solver(mesh.dm, bndConds.cv);
+    ts.Solver(mesh.dm, edgeManager.cv);
   }
 
  private:
@@ -119,7 +121,7 @@ class Solver
     const int                 nEqual = Physics::nEqual;
 
     rhs.setZero();
-    for (auto& [type, bd] : solver->bndConds.bdGroup) { bd->UpdateRHS(cv, rhs, solver); }
+    for (auto& [type, bd] : solver->edgeManager.bdGroup) { bd->UpdateRHS(cv, rhs, solver); }
     for (auto& c : solver->mesh.cell) {
       Real vol = c->Measure();
       rhs.col(c->I()) /= vol;
@@ -128,5 +130,7 @@ class Solver
     PetscSFScatterEnd(solver->mesh.sf, MPIU_REAL, rhs.data(), rhs.data());
   };
 };
+
+}   // cfd
 
 #endif // INCLUDE_SOLVER_HPP_

@@ -17,8 +17,9 @@
 #include "geometry/element.hpp"
 #include <petscsf.h>
 #include <memory>
+#include <vector>
 
-using namespace std;
+namespace cfd {
 
 template <int kOrder>
 class Mesh
@@ -32,14 +33,14 @@ class Mesh
   DM                                 dm;
   PetscSF                            sf;
 
-  vector<Node> node;                 /**< node(local+overlap) list */
-  vector<unique_ptr<EdgeType>> edge; /**< edge(local+overlap) list */
-  vector<unique_ptr<CellType>> cell; /**< cell(local+overlap+ghost) list */
+  std::vector<Node> node;                 /**< node(local+overlap) list */
+  std::vector<std::unique_ptr<EdgeType>> edge; /**< edge(local+overlap) list */
+  std::vector<std::unique_ptr<CellType>> cell; /**< cell(local+overlap+ghost) list */
 
   // functions
   Mesh() = default;
 
-  void ReadMeshFile(const string& filename) {
+  void ReadMeshFile(const std::string& filename) {
     DM                   dmDist;
     DM                   dmOverlap;
     PetscPartitioner     part;
@@ -90,7 +91,7 @@ class Mesh
     for (int i = nroots; i < nleaves; ++i) { selected[i-nroots] = i; }
     PetscSFCreateEmbeddedLeafSF(sf, nleaves-nroots, selected, &sf);
   }
-  void UpdateCellNeighbs(const unordered_map<int, int>& dict) {
+  void UpdateCellNeighbs(const std::unordered_map<int, int>& dict) {
     for (int i = 0; i < nCellroot; ++i) {
       for (int j = 0; j < cell[i]->nCorner(); ++j) {
         auto e = edge[cell[i]->Edge(j)].get();
@@ -143,7 +144,7 @@ class Mesh
     for (int e = eStart; e < eEnd; ++e) {
       const int* vPoints;
       DMPlexGetCone(dm, e, &vPoints);
-      auto edge_ptr = make_unique<EdgeType>(e-eStart,
+      auto edge_ptr = std::make_unique<EdgeType>(e-eStart,
                                             node.at(vPoints[0]-vStart),
                                             node.at(vPoints[1]-vStart));
       edge.emplace_back(move(edge_ptr));
@@ -162,19 +163,19 @@ class Mesh
         else { corner[i] = vPoints[0]; }
       }
       if (size == 3) {
-        auto triangle_ptr = make_unique<Triangle<kOrder>>(c, node.at(corner[0]-vStart),
+        auto triangle_ptr = std::make_unique<Triangle<kOrder>>(c, node.at(corner[0]-vStart),
                                                              node.at(corner[1]-vStart),
                                                              node.at(corner[2]-vStart));
         triangle_ptr->edge = {ePoints[0]-eStart, ePoints[1]-eStart, ePoints[2]-eStart};
-        cell.emplace_back(move(triangle_ptr));
+        cell.emplace_back(std::move(triangle_ptr));
       }
       if (size == 4) {
-        auto quadrangle_ptr = make_unique<Quadrangle<kOrder>>(c, node.at(corner[0]-vStart),
+        auto quadrangle_ptr = std::make_unique<Quadrangle<kOrder>>(c, node.at(corner[0]-vStart),
                                                                  node.at(corner[1]-vStart),
                                                                  node.at(corner[2]-vStart),
                                                                  node.at(corner[3]-vStart));
         quadrangle_ptr->edge = {ePoints[0]-eStart, ePoints[1]-eStart, ePoints[2]-eStart, ePoints[3]-eStart};
-        cell.emplace_back(move(quadrangle_ptr));
+        cell.emplace_back(std::move(quadrangle_ptr));
       }
       delete[] corner;
       for (int i = 0; i < size; ++i) {
@@ -187,5 +188,7 @@ class Mesh
   }
   int nCellroot;
 };
+
+}  // cfd
 
 #endif // INCLUDE_MESH_HPP_

@@ -16,32 +16,34 @@
 #include "defs.hpp"
 #include <array>
 
-using namespace std;
+namespace cfd {
+
+using std::array;
 
 template <int kPoint>
 struct LineQuad;
 
 template <>
 struct LineQuad<1> {
-  array<Real, 1> x{0.0};
-  array<Real, 1> w{2.0};
+  static constexpr array<Real, 1> x{0.0};
+  static constexpr array<Real, 1> w{2.0};
 };
 template <>
 struct LineQuad<2> {
-  array<Real, 2> x{-0.577350269189626, 0.577350269189626};
-  array<Real, 2> w{1.0, 1.0};
+  static constexpr array<Real, 2> x{-0.577350269189626, 0.577350269189626};
+  static constexpr array<Real, 2> w{1.0, 1.0};
 };
 template <>
 struct LineQuad<3> {
-  array<Real, 3> x{-0.774596669241483, +0.774596669241483, 0.0};
-  array<Real, 3> w{+0.555555555555556, +0.555555555555556, 0.888888888888889};
+  static constexpr array<Real, 3> x{-0.774596669241483, +0.774596669241483, 0.0};
+  static constexpr array<Real, 3> w{+0.555555555555556, +0.555555555555556, 0.888888888888889};
 };
 template <>
 struct LineQuad<4> {
-  array<Real, 4> x{-0.8611363115940520, +0.8611363115940520, 
-                   -0.3399810435848560, +0.3399810435848560};
-  array<Real, 4> w{+0.3478548451374530, +0.3478548451374530,
-                   +0.6521451548625460, +0.6521451548625460};
+  static constexpr array<Real, 4> x{-0.8611363115940520, +0.8611363115940520, 
+                                    -0.3399810435848560, +0.3399810435848560};
+  static constexpr array<Real, 4> w{+0.3478548451374530, +0.3478548451374530,
+                                    +0.6521451548625460, +0.6521451548625460};
 };
 
 template <int kOrder>
@@ -81,5 +83,7 @@ struct QuaQuad<3> {
   array<Real, 4> b{+0.577350269189626, +0.577350269189626, -0.577350269189626, -0.577350269189626};
   array<Real, 4> w{1.0, 1.0, 1.0, 1.0};
 };
+
+}  // cfd
 
 #endif  //  INCLUDE_GEOMETRY_QUADRATURE_HPP_

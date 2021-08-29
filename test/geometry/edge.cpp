@@ -23,6 +23,8 @@ static char help[] = "Test for edge class in geometry.\n";
 #include "geometry/element.hpp"
 #include "gtest/gtest.h"
 
+namespace cfd {
+
 class EdgeTest : public ::testing::Test {
  protected:
   using Edge_T = Edge<3>;
@@ -82,6 +84,8 @@ TEST_F(EdgeTest, GaussPoint) {
   EXPECT_NEAR(integrand, 0.0, eps);
   delete[] nodes;
 }
+
+}  // cfd
 
 int main(int argc, char* argv[]) {
   ::testing::InitGoogleTest(&argc, argv);

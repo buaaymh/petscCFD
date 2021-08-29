@@ -1,4 +1,4 @@
-/// @file defs.h
+/// @file defs.hpp
 ///
 /// Global definitions, structures and macros.
 ///
@@ -18,7 +18,7 @@
 #include <Eigen/Dense>
 #include <petscdmplex.h>
 
-// #include "solver.hpp"
+namespace cfd {
 
 #define DIM 2   /* Geometric dimension */
 
@@ -26,7 +26,7 @@
   enum class Equations { Linear, Euler, NavierStokes };
 
   /// Kind of time-stepping
-  enum class TimeStepping { RK3 };
+  enum class TimeStepping { Global, Local };
 
   /// Kind of edge and boundary
   enum class BdCondType { Interior, Periodic, InFlow, OutFlow,
@@ -79,6 +79,8 @@ class Cell;
 template <int kOrder>
 class Mesh;
 
+typedef Eigen::Matrix<Real, 2, 1> Node;
+
 // static function class macros ***********************************************
 
 template <int kOrder>
@@ -104,26 +106,6 @@ struct Dp {
   }
 };
 
-template <int nEqual, int kOrder>
-struct Algebra {
-  using State = Eigen::Matrix<Real, nEqual, 1>;
-  static constexpr int nCoef = (kOrder+1)*(kOrder+2)/2-1; /**< Dofs -1 */
-  static constexpr State Grad(const Real* basis, const Real* valCoefs) {
-    State state = State::Zero();
-    int iter{0};
-    for (int i = 0; i < nEqual; ++i) {
-      for (int j = 0; j < nCoef; ++j) {
-        state(i) += valCoefs[iter++] * basis[j];
-      }
-    }
-    return state;
-  }
-  static constexpr void Add(int n, Real* a, const Real* b) {
-    for (int i = 0; i < n; ++i) { a[i] += b[i]; }
-  }
-  static constexpr void Sub(int n, Real* a, const Real* b) {
-    for (int i = 0; i < n; ++i) { a[i] -= b[i]; }
-  }
-};
+}  // cfd
 
 #endif // INCLUDE_DSFS_HPP_

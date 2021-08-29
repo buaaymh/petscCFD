@@ -22,7 +22,7 @@ static char help[] = "2D Finite Volume Example.\n";
 
 #include "solver.hpp"
 
-using namespace std;
+namespace cfd {
 
 /// Main program of the flow solver.
 ///
@@ -37,7 +37,7 @@ class Advection {
   explicit Advection(const User* user) : user_(user) {};
   void Run()
   {
-    const string dir{TEST_DATA_DIR};
+    const std::string dir{TEST_DATA_DIR};
     auto solver = Solver<kOrder, Linear>();
     solver.mesh.ReadMeshFile(dir + user_->filename);
     solver.SetupDataLayout();
@@ -52,9 +52,13 @@ class Advection {
   const User* user_;
 };
 
-int main( int argc,char **args )
-{
-  User           user;
+}  // cfd
+
+int main( int argc,char **args ) {
+
+  using std::cout;
+  using std::endl;
+  cfd::User           user;
   PetscMPIInt    rank;
 
   // Initialize program
@@ -75,11 +79,9 @@ int main( int argc,char **args )
       << " *                                               *" << endl
       << " *************************************************" << endl << endl;
   }
-  if(user.order == 2)
-  {
-    auto model = Advection<2>(&user);
+  if(user.order == 2) {
+    auto model = cfd::Advection<2>(&user);
     model.Run();
   }
-  
   PetscFinalize();
 }

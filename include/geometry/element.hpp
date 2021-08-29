@@ -16,11 +16,11 @@
 #include <memory>
 #include "defs.hpp"
 #include "geometry/quadrature.hpp"
-#include <petscdmplex.h>
 
-using namespace std;
+namespace cfd {
 
-using Node = Eigen::Matrix<Real,2,1>;
+using std::max;
+using std::min;
 
 template <int kOrder>
 class Edge
@@ -455,5 +455,7 @@ class Quadrangle : public Cell<kOrder>
   Quadrangle(const Quadrangle<kOrder>&) = default;            // override default copy constructor
   Quadrangle<kOrder>& operator = (const Quadrangle<kOrder>&); // and assignment operator
 };
+
+}  // cfd
 
 #endif // INCLUDE_GEOMETRY_ELEMENT_HPP_

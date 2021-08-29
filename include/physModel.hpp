@@ -15,6 +15,7 @@
 
 #include "defs.hpp"
 
+namespace cfd {
 using namespace std;
 
 struct Linear {
@@ -50,5 +51,7 @@ struct Euler
     return field_desc;
   }
 };
+
+}
 
 #endif // INCLUDE_PHYSMODEL_HPP_

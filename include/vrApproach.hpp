@@ -18,13 +18,15 @@
 #include "geometry/mesh.hpp"
 #include <iostream>
 
-using namespace std;
+namespace cfd {
+
+using std::vector;
 
 template <int kOrder, class Physics>
-class VrApproach
-{
-  static constexpr int nCoef = (kOrder+1)*(kOrder+2)/2-1; /**< Dofs -1 */
+class VrApproach {
  public:
+  static constexpr int nCoef = (kOrder+1)*(kOrder+2)/2-1; /**< Dofs -1 */
+
   using Matrix = Eigen::Matrix<Real, nCoef, nCoef>;
   using Column = Eigen::Matrix<Real, nCoef, 1>;
   using EqualCol = Eigen::Matrix<Real, nCoef, Physics::nEqual>;
@@ -33,13 +35,22 @@ class VrApproach
   using FuncTable = typename Cell::BasisF;
   using BndCondsType = BndConds<kOrder, Physics>;
   using Set = typename EdgeGroup<kOrder, Physics>::EdgeSet;
+
+  DM            dmCoef;
+  PetscSF       sfCoef;
+
   struct VrBlock {
     VrBlock() : C_mat(Matrix::Zero()), b_sub(Column::Zero()) {}
     Matrix C_mat;
     Column b_sub;
   };
-  DM            dmCoef;
-  PetscSF       sfCoef;
+
+  vector<int> offset;
+  vector<Matrix> A_inv;
+  vector<Matrix> B_mat;
+  vector<EqualCol> b_col;
+  vector<VrBlock> block;
+
   void SetCoefLayout(DM dm) {
     PetscSection    section;
     int             cStart, cEnd;
@@ -132,16 +143,13 @@ class VrApproach
     if (a.I() > b.I()) mat.transposeInPlace();
     return mat;
   }
-  vector<int> offset;
-  vector<Matrix> A_inv;
-  vector<Matrix> B_mat;
-  vector<EqualCol> b_col;
-  vector<VrBlock> block;
 
  private:
   static Column GetVecAt(const Cell& a, const Real* coord, Real distance) {
     return a.Functions(coord) / distance;
   }
 };
+
+}  // cfd
 
 #endif // INCLUDE_VRAPPROACH_HPP_

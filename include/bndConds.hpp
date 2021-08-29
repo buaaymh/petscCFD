@@ -13,14 +13,18 @@
 #ifndef INCLUDE_BNDCONDS_HPP_
 #define INCLUDE_BNDCONDS_HPP_
 
+
 #include "defs.hpp"
 #include "solver.hpp"
 #include "vrApproach.hpp"
 #include <set>
 #include <iostream>
 
-using namespace std;
-using namespace Eigen;
+namespace cfd {
+
+using Eigen::Matrix;
+using Eigen::Dynamic;
+using std::make_unique;
 
 struct BC {
   // Periodic Boundary
@@ -33,14 +37,17 @@ struct BC {
 
 template<int kOrder, class Physics>
 struct EdgeGroup {
+  // Constants:
+  static constexpr int nEqual = Physics::nEqual;
+  // Types:
   using SolverType = Solver<kOrder, Physics>;
   using Mesh = typename SolverType::MeshType;
   using Edge = typename Mesh::EdgeType;
   struct cmp {bool operator()(Edge* a, Edge* b) const {return a->I() < b->I();}};
-  using EdgeSet = set<Edge*, cmp>;
-  static constexpr int nEqual = Physics::nEqual;
+  using EdgeSet = std::set<Edge*, cmp>;
   using ConVar = Matrix<Real, nEqual, Dynamic>;
-  using Flux = Eigen::Matrix<Real, nEqual, 1>;
+  using Flux = Matrix<Real, nEqual, 1>;
+  // Functions:
   virtual void PreProcess() {
     for (auto& e : edge) {
       auto dist = (e->left->Center() - e->Center()).norm();
@@ -73,6 +80,7 @@ struct EdgeGroup {
   }
   EdgeSet edge;
 };
+
 template<int kOrder, class Physics>
 struct Interior : public EdgeGroup<kOrder,Physics> {
   // Types:
@@ -88,16 +96,17 @@ struct Interior : public EdgeGroup<kOrder,Physics> {
 };
 template<int kOrder, class Physics>
 struct Periodic : public EdgeGroup<kOrder,Physics> {
+  // Constants:
+  static constexpr int nEqual = Physics::nEqual;
   // Types:
   using Base = EdgeGroup<kOrder,Physics>;
   using SolverType = Solver<kOrder, Physics>;
   using Mesh = typename SolverType::MeshType;
   using Edge = typename Mesh::EdgeType;
   using Cell = typename Mesh::CellType;
-  static constexpr int nEqual = Physics::nEqual;
   using ConVar = Matrix<Real, nEqual, Dynamic>;
   using Flux = Eigen::Matrix<Real, nEqual, 1>;
-  // Construction:
+  // Functions:
   Periodic(const Real* lower, const Real* upper) : Base() {
     lower_[0] = lower[0]; lower_[1] = lower[1];
     upper_[0] = upper[0]; upper_[1] = upper[1];
@@ -139,7 +148,8 @@ struct Periodic : public EdgeGroup<kOrder,Physics> {
     auto dist = (a->left->Center() - a->right->Center()).norm();
     a->SetDist(dist); b->SetDist(dist);
   }
-  vector<unique_ptr<Cell>> ghost;
+  // Data:
+  vector<std::unique_ptr<Cell>> ghost;
   vector<Edge*> bdL, bdR, bdB, bdT;
   Real lower_[2], upper_[2];
 };
@@ -168,8 +178,8 @@ struct InFlow : public EdgeGroup<kOrder,Physics> {
     }
   }
   void(*func_) (Real, const Real*, Real*);
-  unordered_map<int, State> bdState;
-  unordered_map<int, Coefs> bdCoef;
+  std::unordered_map<int, State> bdState;
+  std::unordered_map<int, Coefs> bdCoef;
 };
 template<int kOrder, class Physics>
 struct FarField : public EdgeGroup<kOrder,Physics> {
@@ -209,13 +219,13 @@ struct InviscWall : public EdgeGroup<kOrder,Physics> {
   }
 };
 template<int kOrder, class Physics>
-struct BndConds {
+struct EdgeManager {
   // Type:
   using SolverType = Solver<kOrder, Physics>;
   using Mesh = typename SolverType::MeshType;
   using Group = EdgeGroup<kOrder,Physics>;
   using ConVar = Matrix<Real, Physics::nEqual, Dynamic>;
-  BndConds() = default;
+  EdgeManager() = default;
   void PreProcess() { for (auto& [type, bd] : bdGroup) { bd->PreProcess(); } }
   void InitializeBndConds(DM dm, const BC* bc) {
     IS                bdTypeIS;
@@ -262,14 +272,18 @@ struct BndConds {
           DMGetLabelValue(mesh.dm, "Face Sets", e+eStart, &type);
           types.emplace(e, type);
           bdGroup[type]->edge.insert(mesh.edge[e].get());
-        } else { bdGroup[0]->edge.insert(mesh.edge[e].get()); }
+        } else { // interior edges
+          bdGroup[0]->edge.insert(mesh.edge[e].get());
+        }
       }
     }
   }
   // Data:
   ConVar                                cv;
-  unordered_map<int, int>               types;
-  unordered_map<int, unique_ptr<Group>> bdGroup;
-
+  std::unordered_map<int, int>               types;
+  std::unordered_map<int, std::unique_ptr<Group>> bdGroup;
 };
+
+}  // cfd
+
 #endif // INCLUDE_BNDCONDS_HPP_
