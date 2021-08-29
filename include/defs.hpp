@@ -67,7 +67,7 @@ namespace cfd {
 
 // declare template class macros ***********************************************
 template<int kOrder, class Physics>
-struct BndConds;
+struct EdgeManager;
 template<int kOrder, class Physics>
 struct EdgeGroup;
 template<int kOrder, class Physics>

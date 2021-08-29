@@ -33,7 +33,7 @@ class VrApproach {
   using MeshType = Mesh<kOrder>;
   using Cell = typename MeshType::CellType;
   using FuncTable = typename Cell::BasisF;
-  using BndCondsType = BndConds<kOrder, Physics>;
+  using Manager = EdgeManager<kOrder, Physics>;
   using Set = typename EdgeGroup<kOrder, Physics>::EdgeSet;
 
   DM            dmCoef;
@@ -86,7 +86,7 @@ class VrApproach {
     int n = offset[n_cell-1] + mesh.cell[n_cell-1]->nCorner();
     block = vector<VrBlock>(n, VrBlock());
   }
-  void CalculateAinvs(const MeshType& mesh) {
+  void CalculateAinvs(const MeshType& mesh, const Manager& edgeManager) {
     for (int i = 0; i < mesh.NumLocalCells(); ++i) {
       auto c = mesh.cell[i].get();
       for (int j = 0; j < c->nCorner(); ++j) {
@@ -96,16 +96,8 @@ class VrApproach {
         Real dp[kOrder+1];
         if (c->Adjc(j) >= 0) { // Interiod, Periodic boundary
           Dp<kOrder>::Interior(distance, dp);
-        } else if (BdCondType{-c->Adjc(j)} == BdCondType::OutFlow) {
-          for (int i = 0; i <= kOrder; ++i) { dp[i] = 0; }
-        } else if (BdCondType{-c->Adjc(j)} == BdCondType::FarField ||
-                   BdCondType{-c->Adjc(j)} == BdCondType::InFlow ||
-                   BdCondType{-c->Adjc(j)} == BdCondType::InviscWall) {
-          Dp<kOrder>::WithoutDerivative(distance, dp);
-        } else if (BdCondType{-c->Adjc(j)} == BdCondType::Symmetry) {
-          Dp<kOrder>::Symmetry(distance, dp);
         } else {
-          PetscPrintf(PETSC_COMM_SELF, "Unknown BC types(%D)\n", -(c->Adjc(j)));
+          edgeManager.bdGroup.at(-c->Adjc(j))->GetDpArray(distance, dp);
         }
         e->Integrate([&](const Node& node) {
           return GetMatAt(node.data(), *c, *c, normal, dp);

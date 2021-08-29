@@ -13,12 +13,12 @@
 #ifndef INCLUDE_BNDCONDS_HPP_
 #define INCLUDE_BNDCONDS_HPP_
 
+#include <set>
+#include <iostream>
 
 #include "defs.hpp"
 #include "solver.hpp"
 #include "vrApproach.hpp"
-#include <set>
-#include <iostream>
 
 namespace cfd {
 
@@ -63,6 +63,9 @@ struct EdgeGroup {
         return vr.GetMatAt(node.data(), *(e->left), *(e->right), normal, dp);
       }, &vr.B_mat[e->I()]);
     }
+  }
+  virtual void GetDpArray(Real distance, Real* dp) const {
+    Dp<kOrder>::WithoutDerivative(distance, dp);
   }
   static void InteriorRHS(const Edge* e, const ConVar& cv, ConVar& rhs) {
     auto cell_l = e->left, cell_r = e->right;
@@ -156,6 +159,9 @@ struct Periodic : public EdgeGroup<kOrder,Physics> {
 template<int kOrder, class Physics>
 struct OutFlow : public EdgeGroup<kOrder,Physics> {
   void CalculateBmats(VrApproach<kOrder, Physics>& vr) const override {}
+  void GetDpArray(Real distance, Real* dp) {
+    for (int i = 0; i <= kOrder; ++i) { dp[i] = 0; }
+  }
 };
 template<int kOrder, class Physics>
 struct InFlow : public EdgeGroup<kOrder,Physics> {

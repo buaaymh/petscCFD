@@ -72,7 +72,7 @@ class Solver
     for (auto& [type, bd] : edgeManager.bdGroup) {
       bd->CalculateBmats(vrApproach);
     }
-    vrApproach.CalculateAinvs(mesh);
+    vrApproach.CalculateAinvs(mesh, edgeManager);
     vrApproach.CalculateBlockC(mesh);
   }
   void InitializeTS(const void* ctx) {
