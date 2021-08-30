@@ -25,7 +25,6 @@ class Mesh
   static constexpr int nCoef = (kOrder+1)*(kOrder+2)/2-1;
   using EdgeType = Edge<kOrder>;
   using CellType = Cell<kOrder>;
-  using GhostType = Ghost<kOrder>;
   
   DM                                 dm;
   PetscSF                            sf;

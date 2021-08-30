@@ -409,14 +409,6 @@ class Cell<3> : public Cell<2>
 };
 
 template <int kOrder>
-class Ghost : public Cell<kOrder>
-{
- public:
-  // Constructors:
-  Ghost(const Cell<kOrder>& cell) : Cell<kOrder>(cell) {}
-};
-
-template <int kOrder>
 class Triangle : public Cell<kOrder>
 {
  public:
