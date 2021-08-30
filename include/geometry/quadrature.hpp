@@ -13,12 +13,9 @@
 #ifndef INCLUDE_GEOMETRY_QUADRATURE_HPP_
 #define INCLUDE_GEOMETRY_QUADRATURE_HPP_
 
-#include "defs.hpp"
-#include <array>
+#include "defs.h"
 
 namespace cfd {
-
-using std::array;
 
 template <int kPoint>
 struct LineQuad;

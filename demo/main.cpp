@@ -24,12 +24,10 @@ static char help[] = "2D Finite Volume Example.\n";
 
 namespace cfd {
 
-/// Main program of the flow solver.
+/// Defination of BndConds to set boundary conditions in this demo
 ///
-/// @param argc   number of command line arguments
-/// @param argv[] list of arguments
-/// @return       EXIT_SUCCESS or an error code
-///
+BndConds::BndConds() : lower{0.0, 0.0}, upper{1.0, 1.0} {}
+BndConds::~BndConds() = default;
 
 template<int kOrder>
 class Advection {
@@ -48,7 +46,7 @@ class Advection {
     solver.CalculateScalar();
   }
  private:
-  BC bc_;
+  BndConds bc_;
   const User* user_;
 };
 
@@ -58,8 +56,9 @@ int main( int argc,char **args ) {
 
   using std::cout;
   using std::endl;
+  
   cfd::User           user;
-  PetscMPIInt    rank;
+  PetscMPIInt         rank;
 
   // Initialize program
   PetscInitialize(&argc, &args, (char*)0, help);

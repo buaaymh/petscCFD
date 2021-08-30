@@ -13,20 +13,15 @@
 #ifndef INCLUDE_SOLVER_HPP_
 #define INCLUDE_SOLVER_HPP_
 
-#include "defs.hpp"
+#include "defs.h"
 #include "physModel.hpp"
 #include "bndConds.hpp"
 #include "vrApproach.hpp"
 #include "timeDiscr.hpp"
 #include "geometry/mesh.hpp"
-#include <iostream>
-#include <string>
 #include "data/path.hpp"  // defines TEST_DATA_DIR
 
 namespace cfd {
-
-using std::string;
-using namespace Eigen;
 
 struct User {
   int           order = 2;
@@ -49,7 +44,7 @@ class Solver
   using ConVar = Matrix<Real, Physics::nEqual, Dynamic>;
   Physics                            physics;     /**< physical model */
   MeshType                           mesh;        /**< element and geometry */
-  EdgeManager<kOrder, Physics>       edgeManager;    /**< boundary conditions */
+  EdgeManager<kOrder, Physics>       edgeManager; /**< boundary conditions */
   VrApproach<kOrder, Physics>        vrApproach;  /**< variational reconstruction */
   RK3TS<kOrder, Physics>             ts;
 
@@ -61,7 +56,7 @@ class Solver
   }
 
   void SetBoundaryConditions(const void* ctx) {
-    const BC* bc = (const BC*) ctx;
+    const BndConds* bc = (const BndConds*) ctx;
     edgeManager.InitializeBndConds(mesh.dm, bc);
     edgeManager.ClassifyEdges(mesh);
     for (auto& [type, bd] : edgeManager.bdGroup) { bd->PreProcess(); }
@@ -76,13 +71,16 @@ class Solver
     vrApproach.CalculateBlockC(mesh);
   }
   void InitializeTS(const void* ctx) {
-    const User* user = (const User*) ctx;
+    const User* user = static_cast<const User*>(ctx);
     const string dir{OUTPUT_DIR};
+    const string output_dir = dir + user->model + "/";
 
+    system(("rm -rf " + output_dir).c_str());
+    system(("mkdir -p " + output_dir).c_str());
     ts.SetSolverContext(this);
     ts.SetTimeEndAndSetpNum(1.0, 20);
     ts.SetOutputInterval(1);
-    ts.SetOutputDirModelName(dir + user->model);
+    ts.SetOutputDirModelName(output_dir + user->model);
   }
   void InitializeSolution(function<void(int dim, const Real*, int, Real*)>func) {
     int nCell = mesh.CountCells(), Nf = Physics::nEqual;

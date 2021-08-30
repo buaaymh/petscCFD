@@ -13,23 +13,18 @@
 #ifndef INCLUDE_VRAPPROACH_HPP_
 #define INCLUDE_VRAPPROACH_HPP_
 
-#include "bndConds.hpp"
-#include "defs.hpp"
-#include "geometry/mesh.hpp"
-#include <iostream>
+#include "defs.h"
 
 namespace cfd {
-
-using std::vector;
 
 template <int kOrder, class Physics>
 class VrApproach {
  public:
   static constexpr int nCoef = (kOrder+1)*(kOrder+2)/2-1; /**< Dofs -1 */
 
-  using Matrix = Eigen::Matrix<Real, nCoef, nCoef>;
-  using Column = Eigen::Matrix<Real, nCoef, 1>;
-  using EqualCol = Eigen::Matrix<Real, nCoef, Physics::nEqual>;
+  using Matrix = Matrix<Real, nCoef, nCoef>;
+  using Column = Matrix<Real, nCoef, 1>;
+  using EqualCol = Matrix<Real, nCoef, Physics::nEqual>;
   using MeshType = Mesh<kOrder>;
   using Cell = typename MeshType::CellType;
   using FuncTable = typename Cell::BasisF;
@@ -95,7 +90,7 @@ class VrApproach {
         Real normal[2] = {e->Nx(), e->Ny()}; Real distance = e->Distance();
         Real dp[kOrder+1];
         if (c->Adjc(j) >= 0) { // Interiod, Periodic boundary
-          Dp<kOrder>::Interior(distance, dp);
+          InteriorDp(kOrder, distance, dp);
         } else {
           edgeManager.bdGroup.at(-c->Adjc(j))->GetDpArray(distance, dp);
         }

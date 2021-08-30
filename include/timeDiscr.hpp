@@ -13,13 +13,9 @@
 #ifndef INCLUDE_TIMEDISCR_HPP_
 #define INCLUDE_TIMEDISCR_HPP_
 
-#include "defs.hpp"
-#include <string>
-#include <functional>
+#include "defs.h"
 
 namespace cfd {
-
-using std::function;
 
 template<int kOrder, class Physics>
 class RK3TS
@@ -46,13 +42,13 @@ class RK3TS
     Real            t_current;
     PetscViewerCreate(PetscObjectComm((PetscObject)dm), &viewer);
     PetscViewerSetType(viewer, PETSCVIEWERVTK);
-    auto filename = dir_model_ + "."+ to_string(0) + ".vtu";
+    auto filename = dir_model_ + "."+ std::to_string(0) + ".vtu";
     Output(dm, cv, filename.data(), viewer);
     for (int i = 1; i <= nStep_; ++i) {
       TimeStepping(cv);
       t_current += dt;
       if (i % interval_ == 0) {
-        auto filename = dir_model_ + "."+ to_string(i) + ".vtu";
+        auto filename = dir_model_ + "."+ std::to_string(i) + ".vtu";
         Output(dm, cv, filename.data(), viewer);
       }
       PetscPrintf(PETSC_COMM_WORLD, "Progress: %D/%D at %.2fs\n", i, nStep_, t_current);

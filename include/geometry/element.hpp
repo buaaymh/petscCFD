@@ -13,14 +13,10 @@
 #ifndef INCLUDE_GEOMETRY_ELEMENT_HPP_
 #define INCLUDE_GEOMETRY_ELEMENT_HPP_
 
-#include <memory>
-#include "defs.hpp"
+#include "defs.h"
 #include "geometry/quadrature.hpp"
 
 namespace cfd {
-
-using std::max;
-using std::min;
 
 template <int kOrder>
 class Edge
@@ -54,7 +50,6 @@ class Edge
     }
     *value *= 0.5 * Measure();
   }
-
   void Quadrature(int npoints, Node* points) const {
     auto mid = Center();
     auto len = Tail() - Head();

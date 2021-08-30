@@ -13,11 +13,8 @@
 #ifndef INCLUDE_MESH_HPP_
 #define INCLUDE_MESH_HPP_
 
-#include "defs.hpp"
+#include "defs.h"
 #include "geometry/element.hpp"
-#include <petscsf.h>
-#include <memory>
-#include <vector>
 
 namespace cfd {
 

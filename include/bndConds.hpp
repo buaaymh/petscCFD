@@ -13,27 +13,9 @@
 #ifndef INCLUDE_BNDCONDS_HPP_
 #define INCLUDE_BNDCONDS_HPP_
 
-#include <set>
-#include <iostream>
-
-#include "defs.hpp"
-#include "solver.hpp"
-#include "vrApproach.hpp"
+#include "defs.h"
 
 namespace cfd {
-
-using Eigen::Matrix;
-using Eigen::Dynamic;
-using std::make_unique;
-
-struct BC {
-  // Periodic Boundary
-  Real                        lower[2] = {0.0, 0.0}, upper[2] = {1.0, 1.0};
-  // FarField Boundary
-  Real                        refVal[1] = {1.0};
-  // InFlow Boundary
-  static void InFlow(Real t, const Real* coord, Real* Vals) {}
-};
 
 template<int kOrder, class Physics>
 struct EdgeGroup {
@@ -58,14 +40,14 @@ struct EdgeGroup {
   virtual void CalculateBmats(VrApproach<kOrder, Physics>& vr) const {
     for (auto& e : edge) {
       Real normal[2] = {e->Nx(), e->Ny()}; Real distance = e->Distance();
-      Real dp[kOrder+1]; Dp<kOrder>::Interior(distance, dp);
+      Real dp[kOrder+1]; InteriorDp(kOrder, distance, dp);
       e->Integrate([&](const Node& node) {
         return vr.GetMatAt(node.data(), *(e->left), *(e->right), normal, dp);
       }, &vr.B_mat[e->I()]);
     }
   }
   virtual void GetDpArray(Real distance, Real* dp) const {
-    Dp<kOrder>::WithoutDerivative(distance, dp);
+    WithoutDerivative(kOrder, distance, dp);
   }
   static void InteriorRHS(const Edge* e, const ConVar& cv, ConVar& rhs) {
     auto cell_l = e->left, cell_r = e->right;
@@ -97,6 +79,7 @@ struct Interior : public EdgeGroup<kOrder,Physics> {
     }
   }
 };
+
 template<int kOrder, class Physics>
 struct Periodic : public EdgeGroup<kOrder,Physics> {
   // Constants:
@@ -156,13 +139,15 @@ struct Periodic : public EdgeGroup<kOrder,Physics> {
   vector<Edge*> bdL, bdR, bdB, bdT;
   Real lower_[2], upper_[2];
 };
+
 template<int kOrder, class Physics>
 struct OutFlow : public EdgeGroup<kOrder,Physics> {
   void CalculateBmats(VrApproach<kOrder, Physics>& vr) const override {}
-  void GetDpArray(Real distance, Real* dp) {
+  void GetDpArray(Real distance, Real* dp) const override {
     for (int i = 0; i <= kOrder; ++i) { dp[i] = 0; }
   }
 };
+
 template<int kOrder, class Physics>
 struct InFlow : public EdgeGroup<kOrder,Physics> {
   // Types:
@@ -172,21 +157,22 @@ struct InFlow : public EdgeGroup<kOrder,Physics> {
   using State = Eigen::Matrix<Real, Physics::nEqual, 1>;
   using Coefs = Eigen::Matrix<float, Mesh::nCoef * Physics::nEqual, 1>;
   // Construction:
-  InFlow(void(*func) (Real, const Real*, Real*)) : Base(), func_(func) {}
+  InFlow(std::function<void(Real, const Real*, Real*)>func) : Base(), func_(func) {}
   void CalculateBmats(VrApproach<kOrder, Physics>& vr) const override {
     for (auto& e : Base::edge) {
       Real normal[2] = {e->Nx(), e->Ny()}; Real distance = e->Distance();
-        Real dp[kOrder+1]; Dp<kOrder>::WithoutDerivative(distance, dp);
+        Real dp[kOrder+1]; WithoutDerivative(kOrder, distance, dp);
         auto c = e->left;
         e->Integrate([&](const Node& node) {
           return vr.GetMatAt(node.data(), *c, *c, normal, dp);
         }, &vr.B_mat[e->I()]);
     }
   }
-  void(*func_) (Real, const Real*, Real*);
+  std::function<void(Real, const Real*, Real*)> func_;
   std::unordered_map<int, State> bdState;
   std::unordered_map<int, Coefs> bdCoef;
 };
+
 template<int kOrder, class Physics>
 struct FarField : public EdgeGroup<kOrder,Physics> {
   // Types:
@@ -198,7 +184,7 @@ struct FarField : public EdgeGroup<kOrder,Physics> {
   void CalculateBmats(VrApproach<kOrder, Physics>& vr) const override {
     for (auto& e : Base::edge) {
       Real normal[2] = {e->Nx(), e->Ny()}; Real distance = e->Distance();
-        Real dp[kOrder+1]; Dp<kOrder>::WithoutDerivative(distance, dp);
+        Real dp[kOrder+1]; WithoutDerivative(kOrder, distance, dp);
         auto c = e->left;
         e->Integrate([&](const Node& node) {
           return vr.GetMatAt(node.data(), *c, *c, normal, dp);
@@ -208,6 +194,7 @@ struct FarField : public EdgeGroup<kOrder,Physics> {
   ~FarField() { delete[] refer_;}
   Real* refer_;
 };
+
 template<int kOrder, class Physics>
 struct InviscWall : public EdgeGroup<kOrder,Physics> {
   // Types:
@@ -216,7 +203,7 @@ struct InviscWall : public EdgeGroup<kOrder,Physics> {
   void CalculateBmats(VrApproach<kOrder, Physics>& vr) const override {
     for (auto& e : Base::edge) {
       Real normal[2] = {e->Nx(), e->Ny()}; Real distance = e->Distance();
-        Real dp[kOrder+1]; Dp<kOrder>::WithoutDerivative(distance, dp);
+        Real dp[kOrder+1]; WithoutDerivative(kOrder, distance, dp);
         auto c = e->left;
         e->Integrate([&](const Node& node) {
           return vr.GetMatAt(node.data(), *c, *c, normal, dp);
@@ -233,7 +220,7 @@ struct EdgeManager {
   using ConVar = Matrix<Real, Physics::nEqual, Dynamic>;
   EdgeManager() = default;
   void PreProcess() { for (auto& [type, bd] : bdGroup) { bd->PreProcess(); } }
-  void InitializeBndConds(DM dm, const BC* bc) {
+  void InitializeBndConds(DM dm, const BndConds* bc) {
     IS                bdTypeIS;
     DMLabel           label;
     const int         *types;
@@ -252,7 +239,7 @@ struct EdgeManager {
         bdGroup[types[i]] = make_unique<Periodic<kOrder,Physics>>(bc->lower, bc->upper);
         break;
       case BdCondType::InFlow:
-        bdGroup[types[i]] = make_unique<InFlow<kOrder,Physics>>(bc->InFlow);
+        bdGroup[types[i]] = make_unique<InFlow<kOrder,Physics>>(bc->inflow);
         break;
       case BdCondType::OutFlow:
         bdGroup[types[i]] = make_unique<OutFlow<kOrder,Physics>>();
