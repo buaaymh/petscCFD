@@ -22,7 +22,7 @@ struct Linear {
   Linear() = default;
   static constexpr Equations type = Equations::Linear;
   static constexpr int nEqual = 1;
-  using Flux = Eigen::Matrix<Real, nEqual, 1>;
+  using Flux = Matrix<Real, nEqual, 1>;
   using State = Flux;
   using ConVar = Matrix<Real, nEqual, Dynamic>;
   static unordered_map<string, int> CreateFieldDiscription() {
@@ -44,7 +44,7 @@ struct Euler
   Euler() = default;
   static constexpr Equations type = Equations::Euler;
   static constexpr int nEqual = 4;
-  using Flux = Eigen::Matrix<Real, nEqual, 1>;
+  using Flux = Matrix<Real, nEqual, 1>;
   using State = Flux;
   using ConVar = Matrix<Real, nEqual, Dynamic>;
   static unordered_map<string, int> CreateFieldDiscription() {

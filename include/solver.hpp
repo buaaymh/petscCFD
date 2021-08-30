@@ -40,12 +40,15 @@ template<int kOrder, class Physics>
 class Solver
 {
  public:
-  using MeshType =  Mesh<kOrder>;
-  using ConVar = Matrix<Real, Physics::nEqual, Dynamic>;
+  static constexpr int nCoef = (kOrder+1)*(kOrder+2)/2-1; /**< Dofs -1 */
+  static constexpr int nEqual = Physics::nEqual;
+  using Vr = typename cfd::VrApproach<kOrder, Physics>;
+  using MeshType =  typename cfd::Mesh<kOrder>;
+  using ConVar = Matrix<Real, nEqual, Dynamic>;
   Physics                            physics;     /**< physical model */
   MeshType                           mesh;        /**< element and geometry */
   EdgeManager<kOrder, Physics>       edgeManager; /**< boundary conditions */
-  VrApproach<kOrder, Physics>        vrApproach;  /**< variational reconstruction */
+  Vr                                 vrApproach;  /**< variational reconstruction */
   RK3TS<kOrder, Physics>             ts;
 
   // functions
@@ -79,12 +82,12 @@ class Solver
 
     ts.SetSolverContext(this);
     ts.SetTimeEndAndSetpNum(1.0, 20);
-    ts.SetOutputInterval(1);
+    ts.SetOutputInterval(2);
     ts.SetOutputDirModelName(output_dir + user->model);
   }
   void InitializeSolution(function<void(int dim, const Real*, int, Real*)>func) {
-    int nCell = mesh.CountCells(), Nf = Physics::nEqual;
-    edgeManager.cv.resize(nCell);
+    int nCell = mesh.CountCells(), Nf = nEqual;
+    edgeManager.cv.resize(nEqual, nCell);
     for (int i = 0; i < nCell; ++i) {
       func(2, mesh.cell[i]->Center().data(), Nf, edgeManager.cv.data()+i*Nf);
     }
@@ -96,6 +99,13 @@ class Solver
   }
 
  private:
+  static constexpr void UpdateCoefs(const ConVar& cv, Solver<kOrder, Physics>* solver) {
+    // Update b_col
+    solver->vrApproach.UpdateBcols(solver->mesh, cv, solver->edgeManager);
+    // Update coefs
+    solver->vrApproach.UpdateCoefs(solver->mesh, solver->edgeManager);
+
+  }
   static constexpr auto Output = [](DM dm, const ConVar& cv, const char* filename,
                                           PetscViewer viewer)
   {
@@ -105,7 +115,7 @@ class Solver
     DMGetGlobalVector(dm, &pv_global);
     DMGetLocalVector(dm, &pv_local);
     PetscObjectSetName((PetscObject) pv_global, "");
-    if (Physics::nEqual == 1) {
+    if (nEqual == 1) {
       VecPlaceArray(pv_local, cv.data());
       DMLocalToGlobal(dm, pv_local, INSERT_VALUES, pv_global);
       VecResetArray(pv_local);
@@ -116,11 +126,12 @@ class Solver
   };
   static constexpr auto RHSFunction = [](Real t, const ConVar& cv, ConVar& rhs, void *ctx) {
     Solver<kOrder, Physics>*  solver = static_cast<Solver<kOrder, Physics>*>(ctx);
-    const int                 nEqual = Physics::nEqual;
 
     rhs.setZero();
     // Update Coefs for each cell
-    
+    UpdateCoefs(cv, solver);
+    // Detect touble cell and limite the Coefs
+
     // Solving Riemann flux and update rhs
     for (auto& [type, bd] : solver->edgeManager.bdGroup) { bd->UpdateRHS(cv, rhs, solver); }
     for (auto& c : solver->mesh.cell) {

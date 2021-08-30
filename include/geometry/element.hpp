@@ -292,7 +292,6 @@ class Cell<3> : public Cell<2>
     xyy_ = IntegrateQua([&](const Real* coord) { return F_0_0_0(coord)*Pow(F_1_0_0(coord), 2);}, a, b, c, d) / Measure();
     yyy_ = IntegrateQua([&](const Real* coord) { return Pow(F_1_0_0(coord), 3);}, a, b, c, d) / Measure();
   }
-  virtual int nCorner() const = 0;
   static constexpr int Order() { return 3; }
   Real XXX() const { return xxx_; }
   Real XXY() const { return xxy_; }

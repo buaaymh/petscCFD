@@ -79,7 +79,7 @@ int main( int argc,char **args ) {
       << " *************************************************" << endl << endl;
   }
   if(user.order == 2) {
-    auto model = cfd::Advection<2>(&user);
+    auto model = cfd::Advection<3>(&user);
     model.Run();
   }
   PetscFinalize();

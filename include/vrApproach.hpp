@@ -21,16 +21,17 @@ template <int kOrder, class Physics>
 class VrApproach {
  public:
   static constexpr int nCoef = (kOrder+1)*(kOrder+2)/2-1; /**< Dofs -1 */
-
+  static constexpr int nEqual = Physics::nEqual;
   using Matrix = Eigen::Matrix<Real, nCoef, nCoef>;
   using Column = Eigen::Matrix<Real, nCoef, 1>;
-  using EqualCol = Eigen::Matrix<Real, nCoef, Physics::nEqual>;
+  using EqualCol = Eigen::Matrix<Real, nCoef, nEqual>;
   using MeshType = Mesh<kOrder>;
   using Cell = typename MeshType::CellType;
   using FuncTable = typename Cell::BasisF;
   using Manager = EdgeManager<kOrder, Physics>;
   using Set = typename EdgeGroup<kOrder, Physics>::EdgeSet;
-  using Coefs = Eigen::Matrix<Real, nCoef, Dynamic>;
+  using Coefs = typename Eigen::Matrix<Real, Dynamic, Dynamic>;
+  using ConVar = typename Eigen::Matrix<Real, nEqual, Dynamic>;
 
   DM            dmCoef;
   PetscSF       sfCoef;
@@ -56,7 +57,7 @@ class VrApproach {
     DMPlexGetHeightStratum(dmCoef, 0, &cStart, &cEnd);
     PetscSectionSetChart(section, cStart, cEnd);
     for (int c = cStart; c < cEnd; ++c)
-      PetscSectionSetDof(section, c, nCoef * Physics::nEqual);
+      PetscSectionSetDof(section, c, nCoef * nEqual);
     PetscSectionSetUp(section);
     DMSetLocalSection(dmCoef, section);
     PetscSectionDestroy(&section);
@@ -68,7 +69,7 @@ class VrApproach {
     for (int i = nroots; i < nleaves; ++i) { selected[i-nroots] = i; }
     PetscSFCreateEmbeddedLeafSF(sfCoef, nleaves-nroots, selected, &sfCoef);
     // Initialize coefficients
-    coefs.resize(nCoef, cEnd * Physics::nEqual);
+    coefs.resize(nCoef, cEnd * nEqual);
     coefs.setZero();
   }
   void AllocatorMats(const MeshType& mesh) {
@@ -133,7 +134,47 @@ class VrApproach {
     if (a.I() > b.I()) mat.transposeInPlace();
     return mat;
   }
-
+  void UpdateBcols(const MeshType& mesh, const ConVar& cv, const Manager& edgeManager) {
+    const auto& offset = mesh.offset;
+    const auto& interface = mesh.interface;
+    const auto& neighbor = mesh.neighbor;
+    const auto& edges = mesh.edge;
+    const auto& cells = mesh.cell;
+    const auto& bdGroup = edgeManager.bdGroup;
+    for (int i = 0; i < b_col.size(); ++i) {
+      b_col[i].setZero();
+      for (int j = offset[i]; j < offset[i+1]; ++j) {
+        if (neighbor[j] >= 0) {
+          auto cv_d = cv.col(neighbor[j]) - cv.col(i);
+          b_col[i] += block[j].b_sub * cv_d.transpose();
+        } else {
+        }
+      }
+      b_col[i] = A_inv[i] * b_col[i];
+    }
+  }
+  void UpdateCoefs(const MeshType& mesh, const Manager& edgeManager) {
+    const auto& offset = mesh.offset;
+    const auto& interface = mesh.interface;
+    const auto& neighbor = mesh.neighbor;
+    const auto& edges = mesh.edge;
+    const auto& cells = mesh.cell;
+    const auto& bdGroup = edgeManager.bdGroup;
+    for (int k = 0; k < 15; ++k) {
+      for (int i = 0; i < b_col.size(); ++i) {
+        coefs.block<nCoef, nEqual>(0, i*nEqual) *= -0.3;
+        EqualCol temp = EqualCol::Zero();
+        for (int j = offset[i]; j < offset[i+1]; ++j) {
+          if (neighbor[j] >= 0) {
+            temp += block[j].C_mat * coefs.block<nCoef, nEqual>(0, neighbor[j]*nEqual);
+          } else {
+          }
+        }
+        temp += b_col[i];
+        coefs.block<nCoef, nEqual>(0, i*nEqual) += temp * 1.3;
+      }
+    }
+  }
  private:
   static Column GetVecAt(const Cell& a, const Real* coord, Real distance) {
     return a.Functions(coord) / distance;

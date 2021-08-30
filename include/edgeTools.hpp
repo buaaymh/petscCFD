@@ -20,15 +20,17 @@ namespace cfd {
 template<int kOrder, class Physics>
 struct EdgeGroup {
   // Constants:
+  static constexpr int nCoef = (kOrder+1)*(kOrder+2)/2-1; /**< Dofs -1 */
   static constexpr int nEqual = Physics::nEqual;
   // Types:
   using Solver = typename cfd::Solver<kOrder, Physics>;
   using Vr = VrApproach<kOrder, Physics>;
-  using Mesh = typename Solver::MeshType;
+  using Mesh = typename cfd::Mesh<kOrder>;
   using Edge = typename Mesh::EdgeType;
   struct cmp {bool operator()(Edge* a, Edge* b) const {return a->I() < b->I();}};
   using EdgeSet = std::set<Edge*, cmp>;
   using ConVar = typename Physics::ConVar;
+  using Coefs = typename Eigen::Matrix<Real, Dynamic, Dynamic>;
   using Flux = Matrix<Real, nEqual, 1>;
   // Functions:
   virtual void PreProcess() {
@@ -47,19 +49,25 @@ struct EdgeGroup {
       }, &vr.B_mat[e->I()]);
     }
   }
-  static void InteriorRHS(const Edge* e, const ConVar& cv, ConVar& rhs) {
+  static void InteriorRHS(const Edge* e, const ConVar& cv, const Coefs& coefs, ConVar& rhs) {
     auto cell_l = e->left, cell_r = e->right;
     Flux fc = Flux::Zero();
     const Real normal[2] = {e->Nx(), e->Ny()};
+    int i = cell_l->I(), j = cell_r->I();
     e->Integrate([&](const Node& p){
-      return Physics::Riemann(2, p.data(), normal, cv.col(cell_l->I()).data(),
-                                                   cv.col(cell_r->I()).data());
+      Flux U_l = cv.col(i) + cell_l->Functions(p.data()).transpose() *
+                 coefs.block<nCoef, nEqual>(0, i*nEqual);
+      Flux U_r = cv.col(j) + cell_r->Functions(p.data()).transpose() *
+                 coefs.block<nCoef, nEqual>(0, j*nEqual);
+      return Physics::Riemann(2, p.data(), normal, U_l.data(),
+                                                   U_r.data());
     }, &fc);
     rhs.col(cell_l->I()) -= fc;
     rhs.col(cell_r->I()) += fc;
   }
   virtual void UpdateRHS(const ConVar& cv, ConVar& rhs, void* ctx) const {
-    for (auto& e : edge) { InteriorRHS(e, cv, rhs); }
+    Solver*  solver = static_cast<Solver*>(ctx);
+    for (auto& e : edge) { InteriorRHS(e, cv, solver->vrApproach.coefs, rhs); }
   }
   EdgeSet edge;
 };
@@ -118,8 +126,8 @@ struct Periodic : public EdgeGroup<kOrder,Physics> {
   }
   virtual void UpdateRHS(const ConVar& cv, ConVar& rhs, void* ctx) const {
     const Solver* solver = static_cast<const Solver*>(ctx);
-    for (auto& e : bdL) { Base::InteriorRHS(e, cv, rhs); }
-    for (auto& e : bdB) { Base::InteriorRHS(e, cv, rhs); }
+    for (auto& e : bdL) { Base::InteriorRHS(e, cv, solver->vrApproach.coefs, rhs); }
+    for (auto& e : bdB) { Base::InteriorRHS(e, cv, solver->vrApproach.coefs, rhs); }
   }
   void MatchEdges(Edge* a, Edge* b) {
     auto ab = Node(a->Center() - b->Center());
@@ -263,8 +271,8 @@ struct EdgeManager {
     int               eStart, eEnd, type;
     DMPlexGetDepthStratum(mesh.dm, 1, &eStart, &eEnd); /* edges */
     for (int i = 0; i < mesh.NumLocalCells(); ++i) {
-      for(int j = 0; j < mesh.cell[i]->nCorner(); ++j) {
-        int e = mesh.cell[i]->Edge(j);
+      for(int j = mesh.offset[i]; j < mesh.offset[i+1]; ++j) {
+        int e = mesh.interface[j];
         if (mesh.edge[e]->right == nullptr) {
           DMGetLabelValue(mesh.dm, "Face Sets", e+eStart, &type);
           types.emplace(e, type);
@@ -276,8 +284,8 @@ struct EdgeManager {
     }
   }
   // Data:
-  ConVar                                cv;
-  std::unordered_map<int, int>               types;
+  ConVar                                          cv;
+  std::unordered_map<int, int>                    types;
   std::unordered_map<int, std::unique_ptr<Group>> bdGroup;
 };
 

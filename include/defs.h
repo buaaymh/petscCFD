@@ -38,6 +38,7 @@ using std::make_unique;
 using std::max;
 using std::min;
 using std::string;
+using std::unique_ptr;
 using std::unordered_map;
 using std::vector;
 
