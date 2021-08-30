@@ -47,9 +47,6 @@ struct EdgeGroup {
       }, &vr.B_mat[e->I()]);
     }
   }
-  virtual void GetDpArray(Real distance, Real* dp) const {
-    WithoutDerivative(kOrder, distance, dp);
-  }
   static void InteriorRHS(const Edge* e, const ConVar& cv, ConVar& rhs) {
     auto cell_l = e->left, cell_r = e->right;
     Flux fc = Flux::Zero();
@@ -143,10 +140,12 @@ struct Periodic : public EdgeGroup<kOrder,Physics> {
 
 template<int kOrder, class Physics>
 struct OutFlow : public EdgeGroup<kOrder,Physics> {
-  using Vr = VrApproach<kOrder, Physics>;
-  void CalculateBmats(Vr& vr) const override {}
-  void GetDpArray(Real distance, Real* dp) const override {
-    for (int i = 0; i <= kOrder; ++i) { dp[i] = 0; }
+  void PreProcess() override {
+    for (auto& e : EdgeGroup<kOrder,Physics>::edge) {
+      auto dist = (e->left->Center() - e->Center()).norm();
+      e->SetDist(dist);
+      e->right = e->left;
+    }
   }
 };
 

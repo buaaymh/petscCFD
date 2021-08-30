@@ -89,10 +89,17 @@ class VrApproach {
         Matrix temp = Matrix::Zero();
         Real normal[2] = {e->Nx(), e->Ny()}; Real distance = e->Distance();
         Real dp[kOrder+1];
-        if (c->Adjc(j) >= 0) { // Interiod, Periodic boundary
+        if (c->Adjc(j) >= 0) { // Interiod, periodic and outflow boundary
           InteriorDp(kOrder, distance, dp);
         } else {
-          edgeManager.bdGroup.at(-c->Adjc(j))->GetDpArray(distance, dp);
+          BdCondType type = static_cast<BdCondType>(-c->Adjc(j));
+          if (type == BdCondType::InFlow ||
+              type == BdCondType::FarField ||
+              type == BdCondType::InviscWall) {
+            WithoutDerivative(kOrder, distance, dp);
+          } else if (type == BdCondType::Symmetry) {
+            Symmetry(kOrder, distance, dp);
+          }
         }
         e->Integrate([&](const Node& node) {
           return GetMatAt(node.data(), *c, *c, normal, dp);
