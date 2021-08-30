@@ -43,7 +43,7 @@ class Advection {
     solver.InitializeDS();
     solver.InitializeTS(user_);
     solver.InitializeSolution(User::InitFunc);
-    solver.CalculateScalar();
+    solver.Calculate();
   }
  private:
   BndConds bc_;

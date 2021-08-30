@@ -14,6 +14,7 @@
 #define INCLUDE_PHYSMODEL_HPP_
 
 #include "defs.h"
+#include "solver.hpp"
 
 namespace cfd {
 
@@ -23,7 +24,7 @@ struct Linear {
   static constexpr int nEqual = 1;
   using Flux = Eigen::Matrix<Real, nEqual, 1>;
   using State = Flux;
-
+  using ConVar = Matrix<Real, nEqual, Dynamic>;
   static unordered_map<string, int> CreateFieldDiscription() {
     unordered_map<string, int>  field_desc;
     field_desc.emplace("U", 1);
@@ -45,6 +46,7 @@ struct Euler
   static constexpr int nEqual = 4;
   using Flux = Eigen::Matrix<Real, nEqual, 1>;
   using State = Flux;
+  using ConVar = Matrix<Real, nEqual, Dynamic>;
   static unordered_map<string, int> CreateFieldDiscription() {
     unordered_map<string, int>  field_desc;
     field_desc.emplace("Density", 1);

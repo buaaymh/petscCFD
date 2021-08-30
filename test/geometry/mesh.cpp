@@ -31,7 +31,7 @@ using std::string;
 class TriMeshTest : public ::testing::Test {
  protected:
   Mesh<2>   mesh = Mesh<2>();
-  string    meshfile = "tiny.msh";
+  string    meshfile = "tri_test.msh";
   Real      eps{1e-8};
   string    dir{TEST_DATA_DIR};
 };
@@ -129,7 +129,7 @@ TEST_F(TriMeshTest, ReadCell) {
 class QuadMeshTest : public ::testing::Test {
  protected:
   Mesh<2> mesh = Mesh<2>();
-  string      meshfile = "single.msh";
+  string      meshfile = "quad_test.msh";
   Real        eps{1e-8};
   string      dir{TEST_DATA_DIR};
 };

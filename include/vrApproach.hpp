@@ -22,9 +22,9 @@ class VrApproach {
  public:
   static constexpr int nCoef = (kOrder+1)*(kOrder+2)/2-1; /**< Dofs -1 */
 
-  using Matrix = Matrix<Real, nCoef, nCoef>;
-  using Column = Matrix<Real, nCoef, 1>;
-  using EqualCol = Matrix<Real, nCoef, Physics::nEqual>;
+  using Matrix = Eigen::Matrix<Real, nCoef, nCoef>;
+  using Column = Eigen::Matrix<Real, nCoef, 1>;
+  using EqualCol = Eigen::Matrix<Real, nCoef, Physics::nEqual>;
   using MeshType = Mesh<kOrder>;
   using Cell = typename MeshType::CellType;
   using FuncTable = typename Cell::BasisF;

@@ -22,12 +22,13 @@ struct EdgeGroup {
   // Constants:
   static constexpr int nEqual = Physics::nEqual;
   // Types:
-  using SolverType = Solver<kOrder, Physics>;
-  using Mesh = typename SolverType::MeshType;
+  using Solver = typename cfd::Solver<kOrder, Physics>;
+  using Vr = VrApproach<kOrder, Physics>;
+  using Mesh = typename Solver::MeshType;
   using Edge = typename Mesh::EdgeType;
   struct cmp {bool operator()(Edge* a, Edge* b) const {return a->I() < b->I();}};
   using EdgeSet = std::set<Edge*, cmp>;
-  using ConVar = Matrix<Real, nEqual, Dynamic>;
+  using ConVar = typename Physics::ConVar;
   using Flux = Matrix<Real, nEqual, 1>;
   // Functions:
   virtual void PreProcess() {
@@ -36,8 +37,8 @@ struct EdgeGroup {
       e->SetDist(dist);
     }
   }
-  virtual void UpdateVrbCol(const Real* cv, const Mesh& mesh, VrApproach<kOrder, Physics>& vr) const {}
-  virtual void CalculateBmats(VrApproach<kOrder, Physics>& vr) const {
+  virtual void UpdateVrbCol(const Real* cv, const Mesh& mesh, Vr& vr) const {}
+  virtual void CalculateBmats(Vr& vr) const {
     for (auto& e : edge) {
       Real normal[2] = {e->Nx(), e->Ny()}; Real distance = e->Distance();
       Real dp[kOrder+1]; InteriorDp(kOrder, distance, dp);
@@ -86,11 +87,11 @@ struct Periodic : public EdgeGroup<kOrder,Physics> {
   static constexpr int nEqual = Physics::nEqual;
   // Types:
   using Base = EdgeGroup<kOrder,Physics>;
-  using SolverType = Solver<kOrder, Physics>;
-  using Mesh = typename SolverType::MeshType;
+  using Solver = typename cfd::Solver<kOrder, Physics>;
+  using Mesh = typename Solver::MeshType;
   using Edge = typename Mesh::EdgeType;
   using Cell = typename Mesh::CellType;
-  using ConVar = Matrix<Real, nEqual, Dynamic>;
+  using ConVar = typename Physics::ConVar;
   using Flux = Eigen::Matrix<Real, nEqual, 1>;
   // Functions:
   Periodic(const Real* lower, const Real* upper) : Base() {
@@ -119,7 +120,7 @@ struct Periodic : public EdgeGroup<kOrder,Physics> {
     for (int i = 0; i < bdB.size(); ++i) { MatchEdges(bdB[i], bdT[i]); }
   }
   virtual void UpdateRHS(const ConVar& cv, ConVar& rhs, void* ctx) const {
-    const SolverType* solver = static_cast<const SolverType*>(ctx);
+    const Solver* solver = static_cast<const Solver*>(ctx);
     for (auto& e : bdL) { Base::InteriorRHS(e, cv, rhs); }
     for (auto& e : bdB) { Base::InteriorRHS(e, cv, rhs); }
   }
@@ -142,7 +143,8 @@ struct Periodic : public EdgeGroup<kOrder,Physics> {
 
 template<int kOrder, class Physics>
 struct OutFlow : public EdgeGroup<kOrder,Physics> {
-  void CalculateBmats(VrApproach<kOrder, Physics>& vr) const override {}
+  using Vr = VrApproach<kOrder, Physics>;
+  void CalculateBmats(Vr& vr) const override {}
   void GetDpArray(Real distance, Real* dp) const override {
     for (int i = 0; i <= kOrder; ++i) { dp[i] = 0; }
   }
@@ -152,13 +154,14 @@ template<int kOrder, class Physics>
 struct InFlow : public EdgeGroup<kOrder,Physics> {
   // Types:
   using Base = EdgeGroup<kOrder,Physics>;
-  using SolverType = Solver<kOrder, Physics>;
-  using Mesh = typename SolverType::MeshType;
+  using Solver = typename cfd::Solver<kOrder, Physics>;
+  using Vr = VrApproach<kOrder, Physics>;
+  using Mesh = typename Solver::MeshType;
   using State = Eigen::Matrix<Real, Physics::nEqual, 1>;
-  using Coefs = Eigen::Matrix<float, Mesh::nCoef * Physics::nEqual, 1>;
+  using Coefs = Eigen::Matrix<Real, Mesh::nCoef * Physics::nEqual, 1>;
   // Construction:
   InFlow(std::function<void(Real, const Real*, Real*)>func) : Base(), func_(func) {}
-  void CalculateBmats(VrApproach<kOrder, Physics>& vr) const override {
+  void CalculateBmats(Vr& vr) const override {
     for (auto& e : Base::edge) {
       Real normal[2] = {e->Nx(), e->Ny()}; Real distance = e->Distance();
         Real dp[kOrder+1]; WithoutDerivative(kOrder, distance, dp);
@@ -177,11 +180,12 @@ template<int kOrder, class Physics>
 struct FarField : public EdgeGroup<kOrder,Physics> {
   // Types:
   using Base = EdgeGroup<kOrder,Physics>;
+  using Vr = VrApproach<kOrder, Physics>;
   FarField(const Real* reference, int nVals) : Base() {
     refer_ = new Real[nVals];
     for (int i = 0; i < nVals; ++i) { refer_[i] = reference[i]; }
   }
-  void CalculateBmats(VrApproach<kOrder, Physics>& vr) const override {
+  void CalculateBmats(Vr& vr) const override {
     for (auto& e : Base::edge) {
       Real normal[2] = {e->Nx(), e->Ny()}; Real distance = e->Distance();
         Real dp[kOrder+1]; WithoutDerivative(kOrder, distance, dp);
@@ -199,8 +203,9 @@ template<int kOrder, class Physics>
 struct InviscWall : public EdgeGroup<kOrder,Physics> {
   // Types:
   using Base = EdgeGroup<kOrder,Physics>;
+  using Vr = VrApproach<kOrder, Physics>;
   InviscWall() : Base() {}
-  void CalculateBmats(VrApproach<kOrder, Physics>& vr) const override {
+  void CalculateBmats(Vr& vr) const override {
     for (auto& e : Base::edge) {
       Real normal[2] = {e->Nx(), e->Ny()}; Real distance = e->Distance();
         Real dp[kOrder+1]; WithoutDerivative(kOrder, distance, dp);
@@ -214,10 +219,10 @@ struct InviscWall : public EdgeGroup<kOrder,Physics> {
 template<int kOrder, class Physics>
 struct EdgeManager {
   // Type:
-  using SolverType = Solver<kOrder, Physics>;
-  using Mesh = typename SolverType::MeshType;
+  using Solver = typename cfd::Solver<kOrder, Physics>;
+  using Mesh = typename Solver::MeshType;
   using Group = EdgeGroup<kOrder,Physics>;
-  using ConVar = Matrix<Real, Physics::nEqual, Dynamic>;
+  using ConVar = typename Physics::ConVar;
   EdgeManager() = default;
   void PreProcess() { for (auto& [type, bd] : bdGroup) { bd->PreProcess(); } }
   void InitializeBndConds(DM dm, const BndConds* bc) {

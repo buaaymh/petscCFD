@@ -15,7 +15,7 @@
 
 #include "defs.h"
 #include "physModel.hpp"
-#include "bndConds.hpp"
+#include "edgeTools.hpp"
 #include "vrApproach.hpp"
 #include "timeDiscr.hpp"
 #include "geometry/mesh.hpp"
@@ -74,9 +74,9 @@ class Solver
     const User* user = static_cast<const User*>(ctx);
     const string dir{OUTPUT_DIR};
     const string output_dir = dir + user->model + "/";
-
     system(("rm -rf " + output_dir).c_str());
     system(("mkdir -p " + output_dir).c_str());
+
     ts.SetSolverContext(this);
     ts.SetTimeEndAndSetpNum(1.0, 20);
     ts.SetOutputInterval(1);
@@ -89,14 +89,14 @@ class Solver
       func(2, mesh.cell[i]->Center().data(), Nf, edgeManager.cv.data()+i*Nf);
     }
   }
-  void CalculateScalar() {
-    ts.SetMonitor(OutputScalar);
+  void Calculate() {
+    ts.SetMonitor(Output);
     ts.SetRHSFunction(RHSFunction);
     ts.Solver(mesh.dm, edgeManager.cv);
   }
 
  private:
-  static constexpr auto OutputScalar = [](DM dm, const ConVar& cv, const char* filename,
+  static constexpr auto Output = [](DM dm, const ConVar& cv, const char* filename,
                                           PetscViewer viewer)
   {
     int nCell; DMPlexGetDepthStratum(dm, 2, nullptr, &nCell);
@@ -119,10 +119,12 @@ class Solver
     const int                 nEqual = Physics::nEqual;
 
     rhs.setZero();
+    // Update Coefs for each cell
+    
+    // Solving Riemann flux and update rhs
     for (auto& [type, bd] : solver->edgeManager.bdGroup) { bd->UpdateRHS(cv, rhs, solver); }
     for (auto& c : solver->mesh.cell) {
-      Real vol = c->Measure();
-      rhs.col(c->I()) /= vol;
+      Real vol = c->Measure(); rhs.col(c->I()) /= vol;
     }
     PetscSFScatterBegin(solver->mesh.sf, MPIU_REAL, rhs.data(), rhs.data());
     PetscSFScatterEnd(solver->mesh.sf, MPIU_REAL, rhs.data(), rhs.data());
