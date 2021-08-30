@@ -30,22 +30,22 @@ class VrApproach {
   using FuncTable = typename Cell::BasisF;
   using Manager = EdgeManager<kOrder, Physics>;
   using Set = typename EdgeGroup<kOrder, Physics>::EdgeSet;
+  using Coefs = Eigen::Matrix<Real, nCoef, Dynamic>;
 
   DM            dmCoef;
   PetscSF       sfCoef;
+  Coefs         coefs;
 
   struct VrBlock {
     VrBlock() : C_mat(Matrix::Zero()), b_sub(Column::Zero()) {}
     Matrix C_mat;
     Column b_sub;
   };
-
-  vector<int> offset;
   vector<Matrix> A_inv;
   vector<Matrix> B_mat;
   vector<EqualCol> b_col;
   vector<VrBlock> block;
-
+  VrApproach() = default;
   void SetCoefLayout(DM dm) {
     PetscSection    section;
     int             cStart, cEnd;
@@ -67,32 +67,29 @@ class VrApproach {
     int selected[nleaves-nroots];
     for (int i = nroots; i < nleaves; ++i) { selected[i-nroots] = i; }
     PetscSFCreateEmbeddedLeafSF(sfCoef, nleaves-nroots, selected, &sfCoef);
+    // Initialize coefficients
+    coefs.resize(nCoef, cEnd * Physics::nEqual);
+    coefs.setZero();
   }
   void AllocatorMats(const MeshType& mesh) {
     int n_cell = mesh.NumLocalCells(), n_edge = mesh.CountEdges();
     A_inv = vector<Matrix>(n_cell, Matrix::Zero());
     B_mat = vector<Matrix>(n_edge, Matrix::Zero());
     b_col = vector<EqualCol>(n_cell, EqualCol::Zero());
-    offset.reserve(n_cell);
-    offset.emplace_back(0);
-    for (int i = 1; i < n_cell; ++i) {
-      offset.emplace_back(offset[i-1] + mesh.cell[i-1]->nCorner());
-    }
-    int n = offset[n_cell-1] + mesh.cell[n_cell-1]->nCorner();
-    block = vector<VrBlock>(n, VrBlock());
+    block = vector<VrBlock>(mesh.neighbor.size(), VrBlock());
   }
   void CalculateAinvs(const MeshType& mesh, const Manager& edgeManager) {
     for (int i = 0; i < mesh.NumLocalCells(); ++i) {
       auto c = mesh.cell[i].get();
-      for (int j = 0; j < c->nCorner(); ++j) {
-        auto e = mesh.edge[c->Edge(j)].get();
+      for (int j = mesh.offset[i]; j < mesh.offset[i+1]; ++j) {
+        auto e = mesh.edge[mesh.interface[j]].get();
         Matrix temp = Matrix::Zero();
         Real normal[2] = {e->Nx(), e->Ny()}; Real distance = e->Distance();
         Real dp[kOrder+1];
-        if (c->Adjc(j) >= 0) { // Interiod, periodic and outflow boundary
+        if (mesh.neighbor[j] >= 0) { // Interiod, periodic and outflow boundary
           InteriorDp(kOrder, distance, dp);
         } else {
-          BdCondType type = static_cast<BdCondType>(-c->Adjc(j));
+          BdCondType type = static_cast<BdCondType>(-mesh.neighbor[j]);
           if (type == BdCondType::InFlow ||
               type == BdCondType::FarField ||
               type == BdCondType::InviscWall) {
@@ -106,8 +103,7 @@ class VrApproach {
         }, &temp);
         A_inv[i] += temp;
         e->Integrate([&](const Node& node) {
-          return GetVecAt(*c, node.data(), distance);
-        }, &(block[offset[i]+j].b_sub));
+          return GetVecAt(*c, node.data(), distance); }, &(block[j].b_sub));
       }
       A_inv[i] = A_inv[i].inverse();
     }
@@ -115,11 +111,11 @@ class VrApproach {
   void CalculateBlockC(const MeshType& mesh) {
     for (int i = 0; i < mesh.NumLocalCells(); ++i) {
       auto c = mesh.cell[i].get();
-      for (int j = 0; j < c->nCorner(); ++j) {
-        if (c->Adjc(j) < i) {
-          block[offset[i]+j].C_mat = A_inv[i] * B_mat[c->Edge(j)];
+      for (int j = mesh.offset[i]; j < mesh.offset[i+1]; ++j) {
+        if (mesh.neighbor[j] < i) {
+          block[j].C_mat = A_inv[i] * B_mat[mesh.interface[j]];
         } else {
-          block[offset[i]+j].C_mat = A_inv[i] * B_mat[c->Edge(j)].transpose();
+          block[j].C_mat = A_inv[i] * B_mat[mesh.interface[j]].transpose();
         }
       }
     }

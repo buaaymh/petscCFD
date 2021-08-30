@@ -29,9 +29,13 @@ class Mesh
   DM                                 dm;
   PetscSF                            sf;
 
-  std::vector<Node> node;                 /**< node(local+overlap) list */
-  std::vector<std::unique_ptr<EdgeType>> edge; /**< edge(local+overlap) list */
-  std::vector<std::unique_ptr<CellType>> cell; /**< cell(local+overlap+ghost) list */
+  vector<int> offset;
+  vector<int> neighbor;
+  vector<int> interface;
+
+  vector<Node> node;                 /**< node(local+overlap) list */
+  vector<unique_ptr<EdgeType>> edge; /**< edge(local+overlap) list */
+  vector<unique_ptr<CellType>> cell; /**< cell(local+overlap+ghost) list */
 
   // functions
   Mesh() = default;
@@ -88,18 +92,24 @@ class Mesh
     PetscSFCreateEmbeddedLeafSF(sf, nleaves-nroots, selected, &sf);
   }
   void UpdateCellNeighbs(const std::unordered_map<int, int>& dict) {
+    int iter = 0;
+    offset.reserve(nCellroot);
+    offset.emplace_back(0);
+    for (int i = 1; i < nCellroot; ++i) {
+      offset.emplace_back(offset[i-1] + cell[i-1]->nCorner());
+    }
+    neighbor.reserve(offset[nCellroot-1]+cell[nCellroot-1]->nCorner());
     for (int i = 0; i < nCellroot; ++i) {
       for (int j = 0; j < cell[i]->nCorner(); ++j) {
-        auto e = edge[cell[i]->Edge(j)].get();
-        if (e->left == cell[i].get()) {
-          if (e->right) {
-            cell[i]->SetAdjc(j, e->right->I());
-          } else {
+        auto e = edge[interface[iter]].get();
+        if(e->left == cell[i].get()) {
+          if (e->right) { neighbor.emplace_back(e->right->I()); }
+          else {
             int type = dict.at(e->I());
-            cell[i]->SetAdjc(j, -type);}
-        } else {
-          cell[i]->SetAdjc(j, e->left->I());
-        }
+            neighbor.emplace_back(-type);
+          }
+        } else { neighbor.emplace_back(e->left->I()); }
+        iter++;
       }
     }
   }
@@ -121,6 +131,8 @@ class Mesh
     node.reserve(vEnd - vStart);
     edge.reserve(eEnd - eStart);
     cell.reserve(cEnd - cStart);
+    interface.reserve((eEnd - eStart) * 2);
+    offset.reserve(nCellroot+1);
     /* Construct Nodes */
     PetscSection      coordSection;
     Vec               coordinates;
@@ -146,23 +158,25 @@ class Mesh
       edge.emplace_back(move(edge_ptr));
     }
     /* Construct Cells */
+    offset.emplace_back(0);
     for (int c = cStart; c < cEnd; ++c) {
       int size;
       const int *ePoints, *orientations;
       DMPlexGetConeSize(dm, c, &size); int* corner = new int[size];
       DMPlexGetCone(dm, c, &ePoints);
       DMPlexGetConeOrientation(dm, c, &orientations);
+      offset.emplace_back(size+offset[c]);
       for (int i = 0; i < size; ++i) {
         const int *vPoints;
         DMPlexGetCone(dm, ePoints[i], &vPoints);
         if (orientations[i] < 0) { corner[i] = vPoints[1]; }
         else { corner[i] = vPoints[0]; }
+        interface.emplace_back(ePoints[i]-eStart);
       }
       if (size == 3) {
         auto triangle_ptr = std::make_unique<Triangle<kOrder>>(c, node.at(corner[0]-vStart),
                                                              node.at(corner[1]-vStart),
                                                              node.at(corner[2]-vStart));
-        triangle_ptr->edge = {ePoints[0]-eStart, ePoints[1]-eStart, ePoints[2]-eStart};
         cell.emplace_back(std::move(triangle_ptr));
       }
       if (size == 4) {
@@ -170,7 +184,6 @@ class Mesh
                                                                  node.at(corner[1]-vStart),
                                                                  node.at(corner[2]-vStart),
                                                                  node.at(corner[3]-vStart));
-        quadrangle_ptr->edge = {ePoints[0]-eStart, ePoints[1]-eStart, ePoints[2]-eStart, ePoints[3]-eStart};
         cell.emplace_back(std::move(quadrangle_ptr));
       }
       delete[] corner;
