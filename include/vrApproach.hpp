@@ -167,8 +167,8 @@ class VrApproach {
         temp += b_col[i];
         coefs.block<nCoef, nEqual>(0, i*nEqual) += temp * 1.3;
       }
-      PetscSFBcastBegin(sfCoef, MPIU_REAL, coefs.data(), coefs.data(), MPI_REPLACE);
-      PetscSFBcastEnd(sfCoef, MPIU_REAL, coefs.data(), coefs.data(), MPI_REPLACE);
+      PetscSFScatterBegin(sfCoef, MPIU_REAL, coefs.data(), coefs.data());
+      PetscSFScatterEnd(sfCoef, MPIU_REAL, coefs.data(), coefs.data());
     }
   }
  private:
