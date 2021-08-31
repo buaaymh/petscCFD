@@ -59,7 +59,7 @@ class RK3TS
  private:
   void TimeStepping(ConVar& cv) {
     ConVar cv_stage = cv;
-    ConVar cd_dt(cv.cols());
+    ConVar cd_dt(Physics::nEqual, cv.cols());
     /******** Step 1 ********/
     Rhs(dt, cv_stage, cd_dt, ctx_);
     cv_stage += cd_dt * dt;

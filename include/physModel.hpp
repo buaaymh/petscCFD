@@ -37,6 +37,12 @@ struct Linear {
     else { F(0) = U_r[0] * normal[0]; }
     return F;
   }
+  static Flux GetFlux(int dim, const Real* coord, const Real* normal,
+                   const Real* U) {
+    Flux F;
+    F(0) = U[0] * normal[0];
+    return F;
+  }
 };
 
 struct Euler

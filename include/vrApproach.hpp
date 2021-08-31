@@ -30,7 +30,6 @@ class VrApproach {
   using FuncTable = typename Cell::BasisF;
   using Manager = EdgeManager<kOrder, Physics>;
   using Set = typename EdgeGroup<kOrder, Physics>::EdgeSet;
-  using Coefs = typename Eigen::Matrix<Real, Dynamic, Dynamic>;
   using ConVar = typename Eigen::Matrix<Real, nEqual, Dynamic>;
 
   DM            dmCoef;
@@ -53,7 +52,7 @@ class VrApproach {
     int             nroots, nleaves;
     
     DMClone(dm, &dmCoef);
-    PetscSectionCreate(PetscObjectComm((PetscObject)dm), &section);
+    PetscSectionCreate(PetscObjectComm((PetscObject)dmCoef), &section);
     DMPlexGetHeightStratum(dmCoef, 0, &cStart, &cEnd);
     PetscSectionSetChart(section, cStart, cEnd);
     for (int c = cStart; c < cEnd; ++c)
@@ -82,6 +81,7 @@ class VrApproach {
   void CalculateAinvs(const MeshType& mesh, const Manager& edgeManager) {
     for (int i = 0; i < mesh.NumLocalCells(); ++i) {
       auto c = mesh.cell[i].get();
+      Matrix a_mat = Matrix::Zero();
       for (int j = mesh.offset[i]; j < mesh.offset[i+1]; ++j) {
         auto e = mesh.edge[mesh.interface[j]].get();
         Matrix temp = Matrix::Zero();
@@ -102,11 +102,11 @@ class VrApproach {
         e->Integrate([&](const Node& node) {
           return GetMatAt(node.data(), *c, *c, normal, dp);
         }, &temp);
-        A_inv[i] += temp;
+        a_mat += temp;
         e->Integrate([&](const Node& node) {
           return GetVecAt(*c, node.data(), distance); }, &(block[j].b_sub));
       }
-      A_inv[i] = A_inv[i].inverse();
+      A_inv[i] = a_mat.inverse();
     }
   }
   void CalculateBlockC(const MeshType& mesh) {
@@ -138,9 +138,6 @@ class VrApproach {
     const auto& offset = mesh.offset;
     const auto& interface = mesh.interface;
     const auto& neighbor = mesh.neighbor;
-    const auto& edges = mesh.edge;
-    const auto& cells = mesh.cell;
-    const auto& bdGroup = edgeManager.bdGroup;
     for (int i = 0; i < b_col.size(); ++i) {
       b_col[i].setZero();
       for (int j = offset[i]; j < offset[i+1]; ++j) {
@@ -157,10 +154,7 @@ class VrApproach {
     const auto& offset = mesh.offset;
     const auto& interface = mesh.interface;
     const auto& neighbor = mesh.neighbor;
-    const auto& edges = mesh.edge;
-    const auto& cells = mesh.cell;
-    const auto& bdGroup = edgeManager.bdGroup;
-    for (int k = 0; k < 15; ++k) {
+    for (int k = 0; k < 8; ++k) {
       for (int i = 0; i < b_col.size(); ++i) {
         coefs.block<nCoef, nEqual>(0, i*nEqual) *= -0.3;
         EqualCol temp = EqualCol::Zero();
@@ -173,6 +167,8 @@ class VrApproach {
         temp += b_col[i];
         coefs.block<nCoef, nEqual>(0, i*nEqual) += temp * 1.3;
       }
+      PetscSFBcastBegin(sfCoef, MPIU_REAL, coefs.data(), coefs.data(), MPI_REPLACE);
+      PetscSFBcastEnd(sfCoef, MPIU_REAL, coefs.data(), coefs.data(), MPI_REPLACE);
     }
   }
  private:

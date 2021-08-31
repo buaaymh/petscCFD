@@ -1,4 +1,4 @@
-/// @file main.cpp
+/// @file tube.cpp
 ///
 /// Solution of 2-D Euler Equations
 /// on Unstructured Triangular Grids.
@@ -22,25 +22,29 @@ static char help[] = "2D Finite Volume Example.\n";
 
 #include "solver.hpp"
 
+// #define SGLPREC
+
 namespace cfd {
 
 struct User {
   int           order = 2;
-  string        filename = "medium.msh";
-  string        model = "box";
+  string        filename = "tube.msh";
+  string        model = "tube";
   int           n_step = 20, output_interval = 1;
-  Real          cfl = 1.0, tEnd = 1.0;
+  Real          cfl = 1.0, tEnd = 0.1;
 
   static constexpr auto InitFunc = [](int dim, const Real* coord, int Nf, Real* u) {
     for (int i = 0; i < Nf; i++) {
       u[i] = Sin(2 * coord[0] * PI);
+      // if (coord[0] < 0.5) u[i] = 0;
+      // else u[i] = 1;
     }
   };
 };
 
 /// Defination of BndConds to set boundary conditions in this demo
 ///
-BndConds::BndConds() : lower{0.0, 0.0}, upper{1.0, 1.0} {}
+BndConds::BndConds() = default;
 BndConds::~BndConds() = default;
 
 template<int kOrder>
@@ -92,7 +96,13 @@ int main( int argc,char **args ) {
       << " *                                               *" << endl
       << " *************************************************" << endl << endl;
   }
-  if(user.order == 2) {
+  if(user.order == 1) {
+    auto model = cfd::Advection<1>(&user);
+    model.Run();
+  } else if (user.order == 2) {
+    auto model = cfd::Advection<2>(&user);
+    model.Run();
+  } else if (user.order == 3) {
     auto model = cfd::Advection<3>(&user);
     model.Run();
   }

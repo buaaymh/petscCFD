@@ -108,6 +108,8 @@ class Mesh;
 
 typedef Eigen::Matrix<Real, 2, 1> Node;
 
+typedef Eigen::Matrix<Real, Dynamic, Dynamic> Coefs;
+
 class BndConds {
  public:
   // For periodic boundary ****************************************************

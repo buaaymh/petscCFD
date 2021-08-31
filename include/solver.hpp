@@ -23,18 +23,7 @@
 
 namespace cfd {
 
-struct User {
-  int           order = 2;
-  string        filename = "medium.msh";
-  string        model = "box";
-  Real          cfl = 1.0, tEnd = 1.0, output_interval = 1.0;
-
-  static constexpr auto InitFunc = [](int dim, const Real* coord, int Nf, Real* u) {
-    for (int i = 0; i < Nf; i++) {
-      u[i] = Sin(2 * coord[0] * PI);
-    }
-  };
-};
+struct User;
 
 template<int kOrder, class Physics>
 class Solver
@@ -81,8 +70,8 @@ class Solver
     system(("mkdir -p " + output_dir).c_str());
 
     ts.SetSolverContext(this);
-    ts.SetTimeEndAndSetpNum(1.0, 20);
-    ts.SetOutputInterval(2);
+    ts.SetTimeEndAndSetpNum(user->tEnd, user->n_step);
+    ts.SetOutputInterval(user->output_interval);
     ts.SetOutputDirModelName(output_dir + user->model);
   }
   void InitializeSolution(function<void(int dim, const Real*, int, Real*)>func) {
@@ -137,8 +126,8 @@ class Solver
     for (auto& c : solver->mesh.cell) {
       Real vol = c->Measure(); rhs.col(c->I()) /= vol;
     }
-    PetscSFScatterBegin(solver->mesh.sf, MPIU_REAL, rhs.data(), rhs.data());
-    PetscSFScatterEnd(solver->mesh.sf, MPIU_REAL, rhs.data(), rhs.data());
+    PetscSFBcastBegin(solver->mesh.sf, MPIU_REAL, rhs.data(), rhs.data(), MPI_REPLACE);
+    PetscSFBcastEnd(solver->mesh.sf, MPIU_REAL, rhs.data(), rhs.data(), MPI_REPLACE);
   };
 };
 

@@ -30,7 +30,6 @@ struct EdgeGroup {
   struct cmp {bool operator()(Edge* a, Edge* b) const {return a->I() < b->I();}};
   using EdgeSet = std::set<Edge*, cmp>;
   using ConVar = typename Physics::ConVar;
-  using Coefs = typename Eigen::Matrix<Real, Dynamic, Dynamic>;
   using Flux = Matrix<Real, nEqual, 1>;
   // Functions:
   virtual void PreProcess() {
@@ -124,7 +123,7 @@ struct Periodic : public EdgeGroup<kOrder,Physics> {
     for (int i = 0; i < bdL.size(); ++i) { MatchEdges(bdL[i], bdR[i]); }
     for (int i = 0; i < bdB.size(); ++i) { MatchEdges(bdB[i], bdT[i]); }
   }
-  virtual void UpdateRHS(const ConVar& cv, ConVar& rhs, void* ctx) const {
+  void UpdateRHS(const ConVar& cv, ConVar& rhs, void* ctx) const override {
     const Solver* solver = static_cast<const Solver*>(ctx);
     for (auto& e : bdL) { Base::InteriorRHS(e, cv, solver->vrApproach.coefs, rhs); }
     for (auto& e : bdB) { Base::InteriorRHS(e, cv, solver->vrApproach.coefs, rhs); }
@@ -148,11 +147,32 @@ struct Periodic : public EdgeGroup<kOrder,Physics> {
 
 template<int kOrder, class Physics>
 struct OutFlow : public EdgeGroup<kOrder,Physics> {
+  using ConVar = typename Physics::ConVar;
+  using Flux = typename Physics::Flux;
+  using State = typename Physics::State;
+  // Constants:
+  static constexpr int nCoef = (kOrder+1)*(kOrder+2)/2-1; /**< Dofs -1 */
+  static constexpr int nEqual = Physics::nEqual;
   void PreProcess() override {
     for (auto& e : EdgeGroup<kOrder,Physics>::edge) {
       auto dist = (e->left->Center() - e->Center()).norm();
       e->SetDist(dist);
       e->right = e->left;
+    }
+  }
+  void UpdateRHS(const ConVar& cv, ConVar& rhs, void* ctx) const override {
+    Solver<kOrder, Physics>* solver = static_cast<Solver<kOrder, Physics>*>(ctx);
+    Coefs& coefs = solver->vrApproach.coefs;
+    for (auto& e : EdgeGroup<kOrder,Physics>::edge) {
+      auto cell = e->left; int i = cell->I();
+      Flux fc = Flux::Zero();
+      const Real normal[2] = {e->Nx(), e->Ny()};
+      e->Integrate([&](const Node& p){
+        State U = cv.col(i) + cell->Functions(p.data()).transpose() *
+                              coefs.block<nCoef, nEqual>(0, i*nEqual);
+        return Physics::GetFlux(2, p.data(), normal, U.data());
+      }, &fc);
+      rhs.col(i) -= fc;
     }
   }
 };
