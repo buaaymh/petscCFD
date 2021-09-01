@@ -155,7 +155,7 @@ class SpaceDiscr
   void UpdateCoefs(const Mesh<kOrder>& mesh) {
     const auto& offset = mesh.offset;
     const auto& adjc_csr = mesh.adjc_csr;
-    for (int k = 0; k < 8; ++k) {
+    for (int k = 0; k < 10; ++k) {
       for (int i = 0; i < b_col.size(); ++i) {
         coefs.block<nCoef, nEqual>(0, i*nEqual) *= -0.3;
         EqualCol temp = EqualCol::Zero();
@@ -168,8 +168,10 @@ class SpaceDiscr
         temp += b_col[i];
         coefs.block<nCoef, nEqual>(0, i*nEqual) += temp * 1.3;
       }
-      PetscSFScatterBegin(sfCoef, MPIU_REAL, coefs.data(), coefs.data());
-      PetscSFScatterEnd(sfCoef, MPIU_REAL, coefs.data(), coefs.data());
+      if (k % 2 == 0) {
+        PetscSFBcastBegin(sfCoef, MPIU_REAL, coefs.data(), coefs.data(), MPI_REPLACE);
+        PetscSFBcastEnd(sfCoef, MPIU_REAL, coefs.data(), coefs.data(), MPI_REPLACE);
+      }
     }
   }
  private:
