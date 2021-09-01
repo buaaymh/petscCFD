@@ -37,6 +37,7 @@ using std::function;
 using std::make_unique;
 using std::max;
 using std::min;
+using std::set;
 using std::string;
 using std::unique_ptr;
 using std::unordered_map;
@@ -90,13 +91,11 @@ using Eigen::Dynamic;
 
 // declare template class macros ***********************************************
 template<int kOrder, class Physics>
-struct EdgeManager;
-template<int kOrder, class Physics>
-struct EdgeGroup;
+struct Face;
 template<int kOrder, class Physics>
 class Solver;
 template <int kOrder, class Physics>
-class VrApproach;
+class SpaceDiscr;
 template <int kOrder>
 class Edge;
 template <int kOrder>
@@ -108,7 +107,16 @@ class Mesh;
 
 typedef Eigen::Matrix<Real, 2, 1> Node;
 
-typedef Eigen::Matrix<Real, Dynamic, Dynamic> Coefs;
+typedef Eigen::Matrix<Real, Dynamic, Dynamic> Array;
+
+template <int kOrder>
+struct cmp {
+  bool operator()(Edge<kOrder>* a, Edge<kOrder>* b) const {
+    return a->I() < b->I();
+  }
+};
+template <int kOrder>
+using EdgeSet = set<Edge<kOrder>*, cmp<kOrder>>;
 
 class BndConds {
  public:

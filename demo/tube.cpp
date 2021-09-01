@@ -22,16 +22,16 @@ static char help[] = "2D Finite Volume Example.\n";
 
 #include "solver.hpp"
 
-// #define SGLPREC
+#define SGLPREC
 
 namespace cfd {
 
 struct User {
-  int           order = 2;
-  string        filename = "tube.msh";
+  int           order = 3;
+  string        filename = "tube_100.msh";
   string        model = "tube";
-  int           n_step = 20, output_interval = 1;
-  Real          cfl = 1.0, tEnd = 0.1;
+  int           n_step = 100, output_interval = 1;
+  Real          cfl = 1.0, tEnd = 0.5;
 
   static constexpr auto InitFunc = [](int dim, const Real* coord, int Nf, Real* u) {
     for (int i = 0; i < Nf; i++) {

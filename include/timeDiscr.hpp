@@ -17,12 +17,10 @@
 
 namespace cfd {
 
-template<int kOrder, class Physics>
-class RK3TS
+class GlobalRungeKutta
 {
  public:
-  using ConVar = Eigen::Matrix<Real, Physics::nEqual, Dynamic>;
-  RK3TS() = default;
+  GlobalRungeKutta() = default;
   /* Before Calculation */
   void SetTimeEndAndSetpNum(Real tEnd, int nStep) {
     tEnd_ = tEnd; nStep_ = nStep;
@@ -31,25 +29,25 @@ class RK3TS
   void SetSolverContext(void* ctx) { ctx_ = ctx; }
   void SetOutputDirModelName(const string& dir_model) { dir_model_ = dir_model; }
   void SetOutputInterval(int interval) { interval_ = interval; }
-  void SetMonitor(function<void(DM, const ConVar&, const char*, PetscViewer)>output) {
+  void SetMonitor(function<void(DM, const Array&, const char*, PetscViewer)>output) {
     Output = output;
   }
-  void SetRHSFunction(function<void(Real, const ConVar&, ConVar&, void*)> rhs) { Rhs = rhs; }
+  void SetRHSFunction(function<void(Real, const Array&, Array&, void*)> rhs) { Rhs = rhs; }
   void SetComputeInitialCondition(void(*init) (Vec)) { Init = init; }
   /* During Calculation */
-  void Solver(DM dm, ConVar& cv) {
+  void Solver(DM dm, Array& conVar) {
     PetscViewer     viewer;
     Real            t_current;
     PetscViewerCreate(PetscObjectComm((PetscObject)dm), &viewer);
     PetscViewerSetType(viewer, PETSCVIEWERVTK);
     auto filename = dir_model_ + "."+ std::to_string(0) + ".vtu";
-    Output(dm, cv, filename.data(), viewer);
+    Output(dm, conVar, filename.data(), viewer);
     for (int i = 1; i <= nStep_; ++i) {
-      TimeStepping(cv);
+      TimeStepping(conVar);
       t_current += dt;
       if (i % interval_ == 0) {
         auto filename = dir_model_ + "."+ std::to_string(i) + ".vtu";
-        Output(dm, cv, filename.data(), viewer);
+        Output(dm, conVar, filename.data(), viewer);
       }
       PetscPrintf(PETSC_COMM_WORLD, "Progress: %D/%D at %.2fs\n", i, nStep_, t_current);
     }
@@ -57,20 +55,20 @@ class RK3TS
   }
 
  private:
-  void TimeStepping(ConVar& cv) {
-    ConVar cv_stage = cv;
-    ConVar cd_dt(Physics::nEqual, cv.cols());
+  void TimeStepping(Array& conVar) {
+    Array conVar_stage = conVar;
+    Array cd_dt(conVar.rows(), conVar.cols());
     /******** Step 1 ********/
-    Rhs(dt, cv_stage, cd_dt, ctx_);
-    cv_stage += cd_dt * dt;
+    Rhs(dt, conVar_stage, cd_dt, ctx_);
+    conVar_stage += cd_dt * dt;
     /******** Step 2 ********/
-    Rhs(dt, cv_stage, cd_dt, ctx_);
-    cv_stage += cd_dt * dt;
-    cv_stage = 0.25 * cv_stage + 0.75 * cv;
+    Rhs(dt, conVar_stage, cd_dt, ctx_);
+    conVar_stage += cd_dt * dt;
+    conVar_stage = 0.25 * conVar_stage + 0.75 * conVar;
     /******** Step 3 ********/
-    Rhs(dt, cv_stage, cd_dt, ctx_);
-    cv_stage += cd_dt * dt;
-    cv = 2.0/3 * cv_stage + 1.0/3 * cv;
+    Rhs(dt, conVar_stage, cd_dt, ctx_);
+    conVar_stage += cd_dt * dt;
+    conVar = 2.0/3 * conVar_stage + 1.0/3 * conVar;
   }
 
  private:
@@ -79,8 +77,8 @@ class RK3TS
   Real tEnd_, dt;
   string dir_model_;
   function<void(Vec)> Init;
-  function<void(Real, const ConVar&, ConVar&, void*)> Rhs;
-  function<void(DM, const ConVar&, const char*, PetscViewer)> Output;
+  function<void(Real, const Array&, Array&, void*)> Rhs;
+  function<void(DM, const Array&, const char*, PetscViewer)> Output;
 };
 
 }  // cfd

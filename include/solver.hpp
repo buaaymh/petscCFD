@@ -16,7 +16,7 @@
 #include "defs.h"
 #include "physModel.hpp"
 #include "edgeTools.hpp"
-#include "vrApproach.hpp"
+#include "spaceDiscr.hpp"
 #include "timeDiscr.hpp"
 #include "geometry/mesh.hpp"
 #include "data/path.hpp"  // defines TEST_DATA_DIR
@@ -29,38 +29,37 @@ template<int kOrder, class Physics>
 class Solver
 {
  public:
+  using EdgeGroups = unordered_map<int, unique_ptr<Group<kOrder,Physics>>>;
+
   static constexpr int nCoef = (kOrder+1)*(kOrder+2)/2-1; /**< Dofs -1 */
   static constexpr int nEqual = Physics::nEqual;
-  using Vr = typename cfd::VrApproach<kOrder, Physics>;
-  using MeshType =  typename cfd::Mesh<kOrder>;
-  using ConVar = Matrix<Real, nEqual, Dynamic>;
+
   Physics                            physics;     /**< physical model */
-  MeshType                           mesh;        /**< element and geometry */
-  EdgeManager<kOrder, Physics>       edgeManager; /**< boundary conditions */
-  Vr                                 vrApproach;  /**< variational reconstruction */
-  RK3TS<kOrder, Physics>             ts;
+  Mesh<kOrder>                       mesh;        /**< element and geometry */
+  unordered_map<int, int>            types;
+  EdgeGroups                         faceGroups;
+  SpaceDiscr<kOrder, Physics>        spaceDiscr;  /**< variational reconstruction */
+  GlobalRungeKutta                   timeStepper;
 
   // functions
   Solver() = default;
   void SetupDataLayout() {
     mesh.SetDataLayout(physics);
-    vrApproach.SetCoefLayout(mesh.dm);
+    spaceDiscr.SetCoefLayout(mesh.dm);
   }
 
   void SetBoundaryConditions(const void* ctx) {
     const BndConds* bc = (const BndConds*) ctx;
-    edgeManager.InitializeBndConds(mesh.dm, bc);
-    edgeManager.ClassifyEdges(mesh);
-    for (auto& [type, bd] : edgeManager.bdGroup) { bd->PreProcess(); }
-    mesh.UpdateCellNeighbs(edgeManager.types);
+    InitializeBndConds(bc);
+    ClassifyEdges();
+    for (auto& [type, bd] : faceGroups) { bd->PreProcess(); }
+    mesh.UpdateCellNeighbs(types);
   }
   void InitializeDS() {
-    vrApproach.AllocatorMats(mesh);
-    for (auto& [type, bd] : edgeManager.bdGroup) {
-      bd->CalculateBmats(vrApproach);
-    }
-    vrApproach.CalculateAinvs(mesh, edgeManager);
-    vrApproach.CalculateBlockC(mesh);
+    spaceDiscr.AllocatorMats(mesh);
+    spaceDiscr.CalculateBmats(faceGroups);
+    spaceDiscr.CalculateAinvs(mesh, faceGroups);
+    spaceDiscr.CalculateBlockC(mesh);
   }
   void InitializeTS(const void* ctx) {
     const User* user = static_cast<const User*>(ctx);
@@ -69,33 +68,86 @@ class Solver
     system(("rm -rf " + output_dir).c_str());
     system(("mkdir -p " + output_dir).c_str());
 
-    ts.SetSolverContext(this);
-    ts.SetTimeEndAndSetpNum(user->tEnd, user->n_step);
-    ts.SetOutputInterval(user->output_interval);
-    ts.SetOutputDirModelName(output_dir + user->model);
+    timeStepper.SetSolverContext(this);
+    timeStepper.SetTimeEndAndSetpNum(user->tEnd, user->n_step);
+    timeStepper.SetOutputInterval(user->output_interval);
+    timeStepper.SetOutputDirModelName(output_dir + user->model);
   }
   void InitializeSolution(function<void(int dim, const Real*, int, Real*)>func) {
     int nCell = mesh.CountCells(), Nf = nEqual;
-    edgeManager.cv.resize(nEqual, nCell);
+    spaceDiscr.conVar.resize(nEqual, nCell);
     for (int i = 0; i < nCell; ++i) {
-      func(2, mesh.cell[i]->Center().data(), Nf, edgeManager.cv.data()+i*Nf);
+      func(2, mesh.cell[i]->Center().data(), Nf, spaceDiscr.conVar.data()+i*Nf);
     }
   }
   void Calculate() {
-    ts.SetMonitor(Output);
-    ts.SetRHSFunction(RHSFunction);
-    ts.Solver(mesh.dm, edgeManager.cv);
+    timeStepper.SetMonitor(Output);
+    timeStepper.SetRHSFunction(RHSFunction);
+    timeStepper.Solver(mesh.dm, spaceDiscr.conVar);
   }
 
  private:
-  static constexpr void UpdateCoefs(const ConVar& cv, Solver<kOrder, Physics>* solver) {
-    // Update b_col
-    solver->vrApproach.UpdateBcols(solver->mesh, cv, solver->edgeManager);
-    // Update coefs
-    solver->vrApproach.UpdateCoefs(solver->mesh, solver->edgeManager);
-
+  void InitializeBndConds(const BndConds* bc) {
+    IS                bdTypeIS;
+    DMLabel           label;
+    const int         *types;
+    int               numTypes;
+    /* Interior edge group initialization */
+    faceGroups[0] = make_unique<Interior<kOrder,Physics>>();
+    /* Boundary edge group initialization */
+    DMGetLabel(mesh.dm, "Face Sets", &label);
+    DMGetLabelIdIS(mesh.dm, "Face Sets", &bdTypeIS);
+    ISGetLocalSize(bdTypeIS, &numTypes);
+    ISGetIndices(bdTypeIS, &types);
+    for (int i = 0; i < numTypes; ++i) {
+      switch (BdCondType(types[i]))
+      {
+      case BdCondType::Periodic:
+        faceGroups[types[i]] = make_unique<Periodic<kOrder,Physics>>(bc->lower, bc->upper);
+        break;
+      case BdCondType::InFlow:
+        faceGroups[types[i]] = make_unique<InFlow<kOrder,Physics>>(bc->inflow);
+        break;
+      case BdCondType::OutFlow:
+        faceGroups[types[i]] = make_unique<OutFlow<kOrder,Physics>>();
+        break;
+      case BdCondType::FarField:
+        faceGroups[types[i]] = make_unique<FarField<kOrder,Physics>>(bc->refVal, 1);
+        break;
+      case BdCondType::InviscWall:
+        faceGroups[types[i]] = make_unique<InviscWall<kOrder,Physics>>();
+        break;
+      default:
+        break;
+      }
+    }
   }
-  static constexpr auto Output = [](DM dm, const ConVar& cv, const char* filename,
+  void ClassifyEdges() {
+    int  eStart, eEnd, type;
+
+    DMPlexGetDepthStratum(mesh.dm, 1, &eStart, &eEnd); /* edges */
+    for (int i = 0; i < mesh.NumLocalCells(); ++i) {
+      for(int j = mesh.offset[i]; j < mesh.offset[i+1]; ++j) {
+        int e = mesh.edge_csr[j];
+        if (mesh.edge[e]->right == nullptr) {
+          DMGetLabelValue(mesh.dm, "Face Sets", e+eStart, &type);
+          types.emplace(e, type);
+          faceGroups[type]->edge.insert(mesh.edge[e].get());
+        } else { // interior edges
+          faceGroups[0]->edge.insert(mesh.edge[e].get());
+        }
+      }
+    }
+  }
+  static constexpr void UpdateCoefs(const Array& conVar, Solver<kOrder, Physics>* solver) {
+    // Update b_col
+    solver->spaceDiscr.UpdateBcols(solver->mesh, conVar);
+    // Update coefs
+    solver->spaceDiscr.UpdateCoefs(solver->mesh);
+    // Detect trouble cells
+    // solver->limiter.LimitCoefs(solver->mesh, solver->edgeManager, solver->spaceDiscr);
+  }
+  static constexpr auto Output = [](DM dm, const Array& conVar, const char* filename,
                                           PetscViewer viewer)
   {
     int nCell; DMPlexGetDepthStratum(dm, 2, nullptr, &nCell);
@@ -105,7 +157,7 @@ class Solver
     DMGetLocalVector(dm, &pv_local);
     PetscObjectSetName((PetscObject) pv_global, "");
     if (nEqual == 1) {
-      VecPlaceArray(pv_local, cv.data());
+      VecPlaceArray(pv_local, conVar.data());
       DMLocalToGlobal(dm, pv_local, INSERT_VALUES, pv_global);
       VecResetArray(pv_local);
     }
@@ -113,16 +165,14 @@ class Solver
     VecView(pv_global, viewer);
     DMRestoreGlobalVector(dm, &pv_global);
   };
-  static constexpr auto RHSFunction = [](Real t, const ConVar& cv, ConVar& rhs, void *ctx) {
+  static constexpr auto RHSFunction = [](Real t, const Array& conVar, Array& rhs, void *ctx) {
     Solver<kOrder, Physics>*  solver = static_cast<Solver<kOrder, Physics>*>(ctx);
 
     rhs.setZero();
     // Update Coefs for each cell
-    UpdateCoefs(cv, solver);
-    // Detect touble cell and limite the Coefs
-
+    UpdateCoefs(conVar, solver);
     // Solving Riemann flux and update rhs
-    for (auto& [type, bd] : solver->edgeManager.bdGroup) { bd->UpdateRHS(cv, rhs, solver); }
+    for (auto& [type, bd] : solver->faceGroups) { bd->UpdateRHS(conVar, solver->spaceDiscr.coefs, rhs); }
     for (auto& c : solver->mesh.cell) {
       Real vol = c->Measure(); rhs.col(c->I()) /= vol;
     }
