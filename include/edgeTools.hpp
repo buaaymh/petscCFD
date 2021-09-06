@@ -26,7 +26,7 @@ struct Group {
   using Flux = typename Physics::Flux;
   using State = typename Physics::State;
   using Matrix = Eigen::Matrix<Real, nCoef, nCoef>;
-  // Functions:
+  // Virtual Functions:
   virtual void PreProcess() {
     for (auto& e : edge) {
       auto dist = (e->left->Center() - e->Center()).norm();
@@ -39,12 +39,33 @@ struct Group {
     Real normal[2] = {e->Nx(), e->Ny()}; Real distance = e->Distance();
     Real dp[kOrder+1]; InteriorDp(kOrder, distance, dp);
     e->Integrate([&](const Node& node) {
-      return SpaceDiscr<kOrder, Physics>::GetMatAt(node.data(), *left, *right, normal, dp);
+      return GetMatAt(node.data(), *left, *right, normal, dp);
     }, &mat);
     return mat;
   }
-  static Flux InteriorFlux(const Edge<kOrder>* e, const Array& conVar,
-                           const Array& coefs, Array& rhs) {
+  virtual void UpdateRHS(const Array& conVar, const Array& coefs, Array& rhs) const {
+    for (auto& e : edge) {
+      auto flux = InteriorFlux(e, conVar, coefs, rhs);
+      rhs.col(e->left->I()) -= flux;
+      rhs.col(e->right->I()) += flux;
+    }
+  }
+  // Static Functions:
+  static constexpr Matrix GetMatAt(const Real* coord,
+                                   const Cell<kOrder>& a, const Cell<kOrder>& b,
+                                   const Real* normal, const Real* dp) {
+    auto i = a.GetFuncTable(coord, normal);
+    auto j = b.GetFuncTable(coord, normal);
+    Matrix mat = Matrix::Zero();
+    for (int m = 0; m != nCoef; ++m) {
+      for (int n = 0; n != nCoef; ++n) {
+        for (int k = 0; k != kOrder+1; ++k) mat(m,n) += dp[k] * i(n,k) * j(m,k);
+      }
+    }
+    return mat;
+  }
+  static constexpr Flux InteriorFlux(const Edge<kOrder>* e, const Array& conVar,
+                                     const Array& coefs, Array& rhs) {
     auto cell_l = e->left, cell_r = e->right;
     Flux flux_c = Flux::Zero();
     const Real normal[2] = {e->Nx(), e->Ny()};
@@ -54,17 +75,9 @@ struct Group {
                  coefs.block<nCoef, nEqual>(0, i*nEqual);
       State U_r = conVar.col(j) + cell_r->Functions(p.data()).transpose() *
                  coefs.block<nCoef, nEqual>(0, j*nEqual);
-      return Physics::ConvectiveFlux(2, p.data(), normal, U_l.data(),
-                                                   U_r.data());
+      return Physics::ConvectiveFlux(2, p.data(), normal, U_l.data(), U_r.data());
     }, &flux_c);
     return flux_c;
-  }
-  virtual void UpdateRHS(const Array& conVar, const Array& coefs, Array& rhs) const {
-    for (auto& e : edge) {
-      auto flux = InteriorFlux(e, conVar, coefs, rhs);
-      rhs.col(e->left->I()) -= flux;
-      rhs.col(e->right->I()) += flux;
-    }
   }
   EdgeSet<kOrder> edge;
 };
@@ -127,6 +140,7 @@ struct Periodic : public Group<kOrder,Physics> {
       rhs.col(e->right->I()) += flux;
     }
   }
+  // Self Functions:
   void MatchEdges(Edge<kOrder>* a, Edge<kOrder>* b) {
     auto ab = Node(a->Center() - b->Center());
     auto b_right = make_unique<Cell<kOrder>>(*(a->left));
@@ -184,13 +198,13 @@ struct InFlow : public Group<kOrder,Physics> {
   using Matrix = Eigen::Matrix<Real, nCoef, nCoef>;
   // Functions:
   InFlow(function<void(Real, const Real*, Real*)>func) : Base(), func_(func) {}
-  virtual Matrix CalculateMat(const Edge<kOrder>* e, const Cell<kOrder>* left, 
-                              const Cell<kOrder>* right) const {
+  Matrix CalculateMat(const Edge<kOrder>* e, const Cell<kOrder>* left, 
+                      const Cell<kOrder>* right) const override {
     Matrix mat = Matrix::Zero();
     Real normal[2] = {e->Nx(), e->Ny()}; Real distance = e->Distance();
     Real dp[kOrder+1]; WithoutDerivative(kOrder, distance, dp);
     e->Integrate([&](const Node& node) {
-      return SpaceDiscr<kOrder, Physics>::GetMatAt(node.data(), *left, *right, normal, dp);
+      return Base::GetMatAt(node.data(), *left, *right, normal, dp);
     }, &mat);
     return mat;
   }
@@ -216,7 +230,7 @@ struct FarField : public Group<kOrder,Physics> {
     Real normal[2] = {e->Nx(), e->Ny()}; Real distance = e->Distance();
     Real dp[kOrder+1]; WithoutDerivative(kOrder, distance, dp);
     e->Integrate([&](const Node& node) {
-      return SpaceDiscr<kOrder, Physics>::GetMatAt(node.data(), *left, *right, normal, dp);
+      return Base::GetMatAt(node.data(), *left, *right, normal, dp);
     }, &mat);
     return mat;
   }
@@ -231,13 +245,13 @@ struct InviscWall : public Group<kOrder,Physics> {
   using Base = Group<kOrder,Physics>;
   using Matrix = Eigen::Matrix<Real, nCoef, nCoef>;
   // Functions:
-  virtual Matrix CalculateMat(const Edge<kOrder>* e, const Cell<kOrder>* left, 
-                              const Cell<kOrder>* right) const {
+  Matrix CalculateMat(const Edge<kOrder>* e, const Cell<kOrder>* left, 
+                      const Cell<kOrder>* right) const override {
     Matrix mat = Matrix::Zero();
     Real normal[2] = {e->Nx(), e->Ny()}; Real distance = e->Distance();
     Real dp[kOrder+1]; WithoutDerivative(kOrder, distance, dp);
     e->Integrate([&](const Node& node) {
-      return SpaceDiscr<kOrder, Physics>::GetMatAt(node.data(), *left, *right, normal, dp);
+      return Base::GetMatAt(node.data(), *left, *right, normal, dp);
     }, &mat);
     return mat;
   }

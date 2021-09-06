@@ -78,8 +78,8 @@ class SpaceDiscr
     b_col = vector<EqualCol>(n_cell, EqualCol::Zero());
     block = vector<VrBlock>(mesh.adjc_csr.size(), VrBlock());
   }
-  void CalculateBmats(const EdgeGroups& faceGroups) {
-    for (auto& [type, group] : faceGroups) {
+  void CalculateBmats(const EdgeGroups& edgeGroups) {
+    for (auto& [type, group] : edgeGroups) {
       if (BdCondType(type) == BdCondType::Interior ||
           BdCondType(type) == BdCondType::Periodic) {
         for (auto& e : group->edge) {
@@ -92,7 +92,7 @@ class SpaceDiscr
       }
     }
   }
-  void CalculateAinvs(const Mesh<kOrder>& mesh, const EdgeGroups& faceGroups) {
+  void CalculateAinvs(const Mesh<kOrder>& mesh, const EdgeGroups& edgeGroups) {
     for (int i = 0; i < mesh.NumLocalCells(); ++i) {
       auto c = mesh.cell[i].get();
       Matrix a_mat = Matrix::Zero();
@@ -102,9 +102,9 @@ class SpaceDiscr
         Real normal[2] = {e->Nx(), e->Ny()}; Real distance = e->Distance();
         Real dp[kOrder+1];
         if (mesh.adjc_csr[j] >= 0) { // Interiod, periodic and outflow boundary
-          a_mat += faceGroups.at(0)->CalculateMat(e, c, c);
+          a_mat += edgeGroups.at(0)->CalculateMat(e, c, c);
         } else {
-          a_mat += faceGroups.at(-mesh.adjc_csr[j])->CalculateMat(e, c, c);
+          a_mat += edgeGroups.at(-mesh.adjc_csr[j])->CalculateMat(e, c, c);
         }
         e->Integrate([&](const Node& node) {
           return GetVecAt(*c, node.data(), distance); }, &(block[j].b_sub));
@@ -116,26 +116,14 @@ class SpaceDiscr
     for (int i = 0; i < mesh.NumLocalCells(); ++i) {
       auto c = mesh.cell[i].get();
       for (int j = mesh.offset[i]; j < mesh.offset[i+1]; ++j) {
-        if (mesh.adjc_csr[j] < i) {
-          block[j].C_mat = A_inv[i] * B_mat[mesh.edge_csr[j]];
+        auto e = mesh.edge[mesh.edge_csr[j]].get();
+        if (e->right == c) {
+          block[j].C_mat = A_inv[i] * B_mat[e->I()];
         } else {
-          block[j].C_mat = A_inv[i] * B_mat[mesh.edge_csr[j]].transpose();
+          block[j].C_mat = A_inv[i] * B_mat[e->I()].transpose();
         }
       }
     }
-  }
-  static constexpr Matrix GetMatAt(const Real* coord, const Cell<kOrder>& a, const Cell<kOrder>& b,
-                         const Real* normal, const Real* dp) {
-    auto i = a.GetFuncTable(coord, normal);
-    auto j = b.GetFuncTable(coord, normal);
-    Matrix mat = Matrix::Zero();
-    for (int m = 0; m != nCoef; ++m) {
-      for (int n = 0; n != nCoef; ++n) {
-        for (int k = 0; k != kOrder+1; ++k) mat(m,n) += dp[k] * i(n,k) * j(m,k);
-      }
-    }
-    if (a.I() > b.I()) mat.transposeInPlace();
-    return mat;
   }
   void UpdateBcols(const Mesh<kOrder>& mesh, const Array& conVar) {
     const auto& offset = mesh.offset;
@@ -155,9 +143,8 @@ class SpaceDiscr
   void UpdateCoefs(const Mesh<kOrder>& mesh) {
     const auto& offset = mesh.offset;
     const auto& adjc_csr = mesh.adjc_csr;
-    for (int k = 0; k < 10; ++k) {
+    for (int k = 0; k < 7; ++k) {
       for (int i = 0; i < b_col.size(); ++i) {
-        coefs.block<nCoef, nEqual>(0, i*nEqual) *= -0.3;
         EqualCol temp = EqualCol::Zero();
         for (int j = offset[i]; j < offset[i+1]; ++j) {
           if (adjc_csr[j] >= 0) {
@@ -166,6 +153,7 @@ class SpaceDiscr
           }
         }
         temp += b_col[i];
+        coefs.block<nCoef, nEqual>(0, i*nEqual) *= -0.3;
         coefs.block<nCoef, nEqual>(0, i*nEqual) += temp * 1.3;
       }
       if (k % 2 == 0) {
@@ -174,11 +162,108 @@ class SpaceDiscr
       }
     }
   }
+  void InitLimiter(const Mesh<kOrder>& mesh, const EdgeGroups& edgeGroups);
+  void Limiter(const Mesh<kOrder>& mesh);
+ 
  private:
+  vector<Real> du_sum;
+  vector<Real> u_max;
   static Column GetVecAt(const Cell<kOrder>& a, const Real* coord, Real distance) {
     return a.Functions(coord) / distance;
   }
+  void LimitTroubleCell(const Mesh<kOrder>& mesh, const Cell<kOrder>* cell);
 };
+
+template <int kOrder, class Physics>
+void SpaceDiscr<kOrder, Physics>::InitLimiter(const Mesh<kOrder>& mesh,
+                                              const EdgeGroups& edgeGroups)
+{
+  u_max.assign(mesh.CountCells(), EPS);
+  du_sum.assign(mesh.CountCells(), 0.0);
+  // For each interior edge
+  for (const auto& e : edgeGroups.at(0)->edge) {
+    auto cell_l = e->left, cell_r = e->right;
+    int i = cell_l->I(), j = cell_r->I();
+    Real u_l = conVar(0,i), u_r = conVar(0,j);
+    Real uMax = max(u_l, u_r);
+    u_max[i] = max(uMax, u_max[i]), u_max[j] = max(uMax, u_max[j]);
+    const auto& coef_l = coefs.col(i*nEqual), coef_r = coefs.col(j*nEqual);
+    du_sum[i] += Abs((u_l + cell_l->Functions(cell_l->Center().data()).dot(coef_l)) -
+                     (u_r + cell_r->Functions(cell_l->Center().data()).dot(coef_r)));
+    du_sum[j] += Abs((u_l + cell_l->Functions(cell_r->Center().data()).dot(coef_l)) -
+                     (u_r + cell_r->Functions(cell_r->Center().data()).dot(coef_r)));
+  }
+  // For each periodic edge
+  if (edgeGroups.find(1) != edgeGroups.end()) {
+    for (const auto& e : edgeGroups.at(1)->edge) {
+      auto cell_l = e->left, cell_r = e->right;
+      int i = cell_l->I(), j = cell_r->I();
+      Real u_l = conVar(0,i), u_r = conVar(0,j);
+      Real uMax = max(u_l, u_r);
+      u_max[i] = max(uMax, u_max[i]), u_max[j] = max(uMax, u_max[j]);
+      const auto& coef_l = coefs.col(i*nEqual), coef_r = coefs.col(j*nEqual);
+      du_sum[i] += Abs((u_l + cell_l->Functions(cell_l->Center().data()).dot(coef_l)) -
+                       (u_r + cell_r->Functions(cell_l->Center().data()).dot(coef_r))) * 0.5;
+      du_sum[j] += Abs((u_l + cell_l->Functions(cell_r->Center().data()).dot(coef_l)) -
+                       (u_r + cell_r->Functions(cell_r->Center().data()).dot(coef_r))) * 0.5;
+    }
+  }
+}
+template <int kOrder, class Physics>
+void SpaceDiscr<kOrder, Physics>::Limiter(const Mesh<kOrder>& mesh)
+{
+  for (int i = 0; i < mesh.NumLocalCells(); ++i) {
+    auto cell = mesh.cell[i].get();
+    Real h_k = Pow(cell->Measure(), (kOrder+1)*0.25);
+    Real indicator = du_sum[i] / (cell->nCorner() * h_k * u_max[i]);
+    if (indicator > 1) LimitTroubleCell(mesh, cell);
+  }
+  PetscSFBcastBegin(sfCoef, MPIU_REAL, coefs.data(), coefs.data(), MPI_REPLACE);
+  PetscSFBcastEnd(sfCoef, MPIU_REAL, coefs.data(), coefs.data(), MPI_REPLACE);
+}
+template <int kOrder, class Physics>
+void SpaceDiscr<kOrder, Physics>::LimitTroubleCell(const Mesh<kOrder>& mesh,
+                                                   const Cell<kOrder>* cell)
+{
+  const auto& offset = mesh.offset;
+  const auto& edge_csr = mesh.edge_csr;
+  const auto& adjc_csr = mesh.adjc_csr;
+  int i = cell->I();
+  const auto& cv_l = conVar.col(i);
+  Eigen::Array<Real,nEqual,1> d1_max = cv_l;
+  Eigen::Array<Real,nEqual,1> d1_min = cv_l;
+  for (int ec = offset[i]; ec < offset[i+1]; ++ec) {
+    int j = adjc_csr[ec];
+    if (j >= 0) {
+      const auto& cv_r = conVar.col(j);
+      d1_max = d1_max.max(cv_r.array());
+      d1_min = d1_min.min(cv_r.array());
+    }
+  }
+  d1_max -= cv_l.array(); d1_min -= cv_l.array();
+  const auto& coef_l = coefs.block<nCoef, nEqual>(0, i*nEqual);
+  Real eps2 = 0 * Pow(cell->Measure(), 1.5);
+  Eigen::Matrix<Real,nEqual,1> factor = Eigen::Matrix<Real,nEqual,1>::Ones();
+  for (int ec = offset[i]; ec < offset[i+1]; ++ec) {
+    auto edge = mesh.edge[edge_csr[ec]].get();
+    int n_points = edge->nQuad;
+    Node* points = new Node[n_points]; edge->Quadrature(n_points, points);
+    for (int k = 0; k < n_points; ++k) {
+      auto d2 = cell->Functions(points[k].data()).transpose() * coef_l;
+      for (int m = 0; m < nEqual; ++m) {
+        if (d2(m) > d1_max(m)) {
+          Real venkat = Venkat(d1_max(m), d2, eps2);
+          factor(m) = min(factor(m), venkat);
+        } else if (d2(m) < d1_min(m)) {
+          Real venkat = Venkat(d1_min(m), d2, eps2);
+          factor(m) = min(factor(m), venkat);
+        }
+      }
+    }
+    delete[] points;
+  }
+  for (int m = 0; m < nEqual; ++m) { coefs.col(i*nEqual+m) *= factor(m); }
+}
 
 }  // cfd
 

@@ -29,7 +29,7 @@ template<int kOrder, class Physics>
 class Solver
 {
  public:
-  using EdgeGroups = unordered_map<int, unique_ptr<Group<kOrder,Physics>>>;
+  using EdgeGroups = typename cfd::EdgeGroups<kOrder, Physics>;
 
   static constexpr int nCoef = (kOrder+1)*(kOrder+2)/2-1; /**< Dofs -1 */
   static constexpr int nEqual = Physics::nEqual;
@@ -37,7 +37,7 @@ class Solver
   Physics                            physics;     /**< physical model */
   Mesh<kOrder>                       mesh;        /**< element and geometry */
   unordered_map<int, int>            types;
-  EdgeGroups                         faceGroups;
+  EdgeGroups                         edgeGroup;
   SpaceDiscr<kOrder, Physics>        spaceDiscr;  /**< variational reconstruction */
   GlobalRungeKutta                   timeStepper;
 
@@ -52,13 +52,13 @@ class Solver
     const BndConds* bc = (const BndConds*) ctx;
     InitializeBndConds(bc);
     ClassifyEdges();
-    for (auto& [type, bd] : faceGroups) { bd->PreProcess(); }
+    for (auto& [type, bd] : edgeGroup) { bd->PreProcess(); }
     mesh.UpdateCellNeighbs(types);
   }
   void InitializeDS() {
     spaceDiscr.AllocatorMats(mesh);
-    spaceDiscr.CalculateBmats(faceGroups);
-    spaceDiscr.CalculateAinvs(mesh, faceGroups);
+    spaceDiscr.CalculateBmats(edgeGroup);
+    spaceDiscr.CalculateAinvs(mesh, edgeGroup);
     spaceDiscr.CalculateBlockC(mesh);
   }
   void InitializeTS(const void* ctx) {
@@ -93,7 +93,7 @@ class Solver
     const int         *types;
     int               numTypes;
     /* Interior edge group initialization */
-    faceGroups[0] = make_unique<Interior<kOrder,Physics>>();
+    edgeGroup[0] = make_unique<Interior<kOrder,Physics>>();
     /* Boundary edge group initialization */
     DMGetLabel(mesh.dm, "Face Sets", &label);
     DMGetLabelIdIS(mesh.dm, "Face Sets", &bdTypeIS);
@@ -103,19 +103,19 @@ class Solver
       switch (BdCondType(types[i]))
       {
       case BdCondType::Periodic:
-        faceGroups[types[i]] = make_unique<Periodic<kOrder,Physics>>(bc->lower, bc->upper);
+        edgeGroup[types[i]] = make_unique<Periodic<kOrder,Physics>>(bc->lower, bc->upper);
         break;
       case BdCondType::InFlow:
-        faceGroups[types[i]] = make_unique<InFlow<kOrder,Physics>>(bc->inflow);
+        edgeGroup[types[i]] = make_unique<InFlow<kOrder,Physics>>(bc->inflow);
         break;
       case BdCondType::OutFlow:
-        faceGroups[types[i]] = make_unique<OutFlow<kOrder,Physics>>();
+        edgeGroup[types[i]] = make_unique<OutFlow<kOrder,Physics>>();
         break;
       case BdCondType::FarField:
-        faceGroups[types[i]] = make_unique<FarField<kOrder,Physics>>(bc->refVal, 1);
+        edgeGroup[types[i]] = make_unique<FarField<kOrder,Physics>>(bc->refVal, 1);
         break;
       case BdCondType::InviscWall:
-        faceGroups[types[i]] = make_unique<InviscWall<kOrder,Physics>>();
+        edgeGroup[types[i]] = make_unique<InviscWall<kOrder,Physics>>();
         break;
       default:
         break;
@@ -132,9 +132,9 @@ class Solver
         if (mesh.edge[e]->right == nullptr) {
           DMGetLabelValue(mesh.dm, "Face Sets", e+eStart, &type);
           types.emplace(e, type);
-          faceGroups[type]->edge.insert(mesh.edge[e].get());
+          edgeGroup[type]->edge.insert(mesh.edge[e].get());
         } else { // interior edges
-          faceGroups[0]->edge.insert(mesh.edge[e].get());
+          edgeGroup[0]->edge.insert(mesh.edge[e].get());
         }
       }
     }
@@ -145,7 +145,8 @@ class Solver
     // Update coefs
     solver->spaceDiscr.UpdateCoefs(solver->mesh);
     // Detect trouble cells
-    // solver->limiter.LimitCoefs(solver->mesh, solver->edgeManager, solver->spaceDiscr);
+    solver->spaceDiscr.InitLimiter(solver->mesh, solver->edgeGroup);
+    solver->spaceDiscr.Limiter(solver->mesh);
   }
   static constexpr auto Output = [](DM dm, const Array& conVar, const char* filename,
                                           PetscViewer viewer)
@@ -172,7 +173,7 @@ class Solver
     // Update Coefs for each cell
     UpdateCoefs(conVar, solver);
     // Solving Riemann flux and update rhs
-    for (auto& [type, bd] : solver->faceGroups) { bd->UpdateRHS(conVar, solver->spaceDiscr.coefs, rhs); }
+    for (auto& [type, bd] : solver->edgeGroup) { bd->UpdateRHS(conVar, solver->spaceDiscr.coefs, rhs); }
     for (auto& c : solver->mesh.cell) {
       Real vol = c->Measure(); rhs.col(c->I()) /= vol;
     }

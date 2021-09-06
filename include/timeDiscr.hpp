@@ -48,8 +48,8 @@ class GlobalRungeKutta
       if (i % interval_ == 0) {
         auto filename = dir_model_ + "."+ std::to_string(i) + ".vtu";
         Output(dm, conVar, filename.data(), viewer);
+        PetscPrintf(PETSC_COMM_WORLD, "Progress: %D/%D at %.2fs\n", i, nStep_, t_current);
       }
-      PetscPrintf(PETSC_COMM_WORLD, "Progress: %D/%D at %.2fs\n", i, nStep_, t_current);
     }
     PetscViewerDestroy(&viewer);
   }

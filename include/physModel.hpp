@@ -32,8 +32,9 @@ struct Linear {
   static Flux ConvectiveFlux(int dim, const Real* coord, const Real* normal,
                       const Real* U_l, const Real* U_r) {
     Flux F;
-    if (normal[0] > 0) { F(0) = U_l[0] * normal[0]; }
-    else { F(0) = U_r[0] * normal[0]; }
+    Real a = normal[0];
+    if (a > 0) { F(0) = U_l[0] * a; }
+    else { F(0) = U_r[0] * a; }
     return F;
   }
   static Flux ConvectiveFlux(int dim, const Real* coord, const Real* normal,
