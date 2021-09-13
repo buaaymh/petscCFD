@@ -21,6 +21,7 @@
 #include <memory>
 #include <set>
 #include <string>
+#include <unordered_map>
 #include <vector>
 // Eigen3
 #include <Eigen/Dense>
@@ -63,6 +64,8 @@ using Eigen::Dynamic;
 #ifdef SGLPREC
   #define PETSC_USE_REAL_SINGLE
   typedef float  Real;        /**< floating-point value */
+  #define EPS    FLT_EPSILON  /**< tolerance for a small number */
+  #define INF    FLT_MAX      /**< tolerance for a large number */
   #define Abs    fabsf
   #define Sqrt   sqrtf
   #define Sin    sinf
@@ -72,6 +75,8 @@ using Eigen::Dynamic;
 #else
   #define PETSC_USE_REAL_DOUBLE
   typedef double Real;        /**< floating-point value */
+  #define EPS    DBL_EPSILON  /**< tolerance for a small number */
+  #define INF    DBL_MAX      /**< tolerance for a large number */
   #define Abs    std::fabs
   #define Sqrt   std::sqrt
   #define Sin    std::sin
@@ -84,14 +89,16 @@ using Eigen::Dynamic;
 
 #define PI                         3.1415926535897932
 #define Gamma                      1.4
-#define GammaPlusOne               Gamma+1
-#define GammaMinusOne              Gamma-1
-#define OneOverGamma               1/Gamma
-#define OneOverGammaMinusOne       1/GammaMinusOne
+#define GamP1                      2.4
+#define GamM1                      0.4
+#define One_Gamma                  0.7142857142857143
+#define One_GamM1                  2.5
+#define Gam_GamM1                  3.5
+#define EPS_Entr                   0.05
 
 // declare template class macros ***********************************************
 template<int kOrder, class Physics>
-struct Face;
+struct Group;
 template<int kOrder, class Physics>
 class Solver;
 template <int kOrder, class Physics>
@@ -117,6 +124,9 @@ struct cmp {
 };
 template <int kOrder>
 using EdgeSet = set<Edge<kOrder>*, cmp<kOrder>>;
+
+template<int kOrder, class Physics>
+using EdgeGroups = unordered_map<int, unique_ptr<Group<kOrder,Physics>>>;
 
 class BndConds {
  public:
@@ -151,6 +161,18 @@ static constexpr void Symmetry(int k, Real distance, Real* dp) {
   for (int i = 0; i <= k; ++i) {
     dp[i] = Pow(distance, 2*i-1) * Pow(-1,i) / Pow(Factorial(i), 2);
   }
+}
+static constexpr Real EntropyCorr(Real z, Real d)
+{
+  if (z > d) return z;
+  else return 0.5*(z*z+d*d)/d;
+}
+
+static constexpr Real Venkat(Real d1, Real d2, Real eps2)
+{
+  Real num = (d1 * d1 + eps2) * d2 + 2.0 * d2 * d2 * d1;
+  Real den = d2 * (d1 * d1 + 2.0 * d2 * d2 + d1 * d2 + eps2);
+  return num / den;
 }
 
 }  // cfd
