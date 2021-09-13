@@ -33,6 +33,7 @@ class SpaceDiscr
   DM            dmCoef;
   PetscSF       sfCoef;
   Array         conVar;
+  Array         priVar;
   Array         coefs;
 
   struct VrBlock {
@@ -101,10 +102,9 @@ class SpaceDiscr
         Matrix temp = Matrix::Zero();
         Real normal[2] = {e->Nx(), e->Ny()}; Real distance = e->Distance();
         Real dp[kOrder+1];
-        if (mesh.adjc_csr[j] >= 0) { // Interiod, periodic and outflow boundary
+        if (mesh.adjc_csr[j] >= 0) { // Interiod, periodic boundary
           a_mat += edgeGroups.at(0)->CalculateMat(e, c, c);
         } else {
-          a_mat += edgeGroups.at(-mesh.adjc_csr[j])->CalculateMat(e, c, c);
         }
         e->Integrate([&](const Node& node) {
           return GetVecAt(*c, node.data(), distance); }, &(block[j].b_sub));
@@ -125,16 +125,20 @@ class SpaceDiscr
       }
     }
   }
-  void UpdateBcols(const Mesh<kOrder>& mesh, const Array& conVar) {
+  void UpdatePriVar(const Array& conVar) {
+    for (int i = 0; i < conVar.size(); i += nEqual) {
+      Physics::ConsToPrim(conVar.data()+i, priVar.data()+i);
+    }
+  }
+  void UpdateBcols(const Mesh<kOrder>& mesh) {
     const auto& offset = mesh.offset;
     const auto& adjc_csr = mesh.adjc_csr;
     for (int i = 0; i < b_col.size(); ++i) {
       b_col[i].setZero();
       for (int j = offset[i]; j < offset[i+1]; ++j) {
         if (adjc_csr[j] >= 0) {
-          auto conVar_d = conVar.col(adjc_csr[j]) - conVar.col(i);
-          b_col[i] += block[j].b_sub * conVar_d.transpose();
-        } else {
+          auto priVar_d = priVar.col(adjc_csr[j]) - priVar.col(i);
+          b_col[i] += block[j].b_sub * priVar_d.transpose();
         }
       }
       b_col[i] = A_inv[i] * b_col[i];
@@ -143,7 +147,7 @@ class SpaceDiscr
   void UpdateCoefs(const Mesh<kOrder>& mesh) {
     const auto& offset = mesh.offset;
     const auto& adjc_csr = mesh.adjc_csr;
-    for (int k = 0; k < 7; ++k) {
+    for (int k = 0; k < 11; ++k) {
       for (int i = 0; i < b_col.size(); ++i) {
         EqualCol temp = EqualCol::Zero();
         for (int j = offset[i]; j < offset[i+1]; ++j) {
@@ -164,10 +168,12 @@ class SpaceDiscr
   }
   void InitLimiter(const Mesh<kOrder>& mesh, const EdgeGroups& edgeGroups);
   void Limiter(const Mesh<kOrder>& mesh);
+  void PositivePreserve();
  
  private:
-  vector<Real> du_sum;
-  vector<Real> u_max;
+  vector<Real> dr_sum;
+  vector<Real> r_max;
+  vector<Real> p_min;
   static Column GetVecAt(const Cell<kOrder>& a, const Real* coord, Real distance) {
     return a.Functions(coord) / distance;
   }
@@ -178,34 +184,44 @@ template <int kOrder, class Physics>
 void SpaceDiscr<kOrder, Physics>::InitLimiter(const Mesh<kOrder>& mesh,
                                               const EdgeGroups& edgeGroups)
 {
-  u_max.assign(mesh.CountCells(), EPS);
-  du_sum.assign(mesh.CountCells(), 0.0);
+  r_max.assign(mesh.CountCells(), EPS);
+  p_min.assign(mesh.CountCells(), INF);
+  dr_sum.assign(mesh.CountCells(), 0.0);
   // For each interior edge
   for (const auto& e : edgeGroups.at(0)->edge) {
     auto cell_l = e->left, cell_r = e->right;
     int i = cell_l->I(), j = cell_r->I();
-    Real u_l = conVar(0,i), u_r = conVar(0,j);
-    Real uMax = max(u_l, u_r);
-    u_max[i] = max(uMax, u_max[i]), u_max[j] = max(uMax, u_max[j]);
+    // max rho of both sides
+    Real rl = priVar(0,i), rr = priVar(0,j);
+    Real rMax = max(rl, rr);
+    r_max[i] = max(rMax, r_max[i]), r_max[j] = max(rMax, r_max[j]);
+    // min p of both sides
+    Real pMin = min(priVar(3,i), priVar(3,j));
+    p_min[i] = min(pMin, p_min[i]), p_min[j] = min(pMin, p_min[j]);
+
     const auto& coef_l = coefs.col(i*nEqual), coef_r = coefs.col(j*nEqual);
-    du_sum[i] += Abs((u_l + cell_l->Functions(cell_l->Center().data()).dot(coef_l)) -
-                     (u_r + cell_r->Functions(cell_l->Center().data()).dot(coef_r)));
-    du_sum[j] += Abs((u_l + cell_l->Functions(cell_r->Center().data()).dot(coef_l)) -
-                     (u_r + cell_r->Functions(cell_r->Center().data()).dot(coef_r)));
+    Real dr = Abs((rl + cell_l->Functions(e->Center().data()).dot(coef_l)) -
+                  (rr + cell_r->Functions(e->Center().data()).dot(coef_r)));
+    dr_sum[i] += dr;
+    dr_sum[j] += dr;
   }
   // For each periodic edge
   if (edgeGroups.find(1) != edgeGroups.end()) {
     for (const auto& e : edgeGroups.at(1)->edge) {
       auto cell_l = e->left, cell_r = e->right;
       int i = cell_l->I(), j = cell_r->I();
-      Real u_l = conVar(0,i), u_r = conVar(0,j);
-      Real uMax = max(u_l, u_r);
-      u_max[i] = max(uMax, u_max[i]), u_max[j] = max(uMax, u_max[j]);
+      // max rho of both sides
+      Real rl = priVar(0,i), rr = priVar(0,j);
+      Real rMax = max(rl, rr);
+      r_max[i] = max(rMax, r_max[i]), r_max[j] = max(rMax, r_max[j]);
+      // min p of both sides
+      Real pMin = min(priVar(3,i), priVar(3,j));
+      p_min[i] = min(pMin, p_min[i]), p_min[j] = min(pMin, p_min[j]);
       const auto& coef_l = coefs.col(i*nEqual), coef_r = coefs.col(j*nEqual);
-      du_sum[i] += Abs((u_l + cell_l->Functions(cell_l->Center().data()).dot(coef_l)) -
-                       (u_r + cell_r->Functions(cell_l->Center().data()).dot(coef_r))) * 0.5;
-      du_sum[j] += Abs((u_l + cell_l->Functions(cell_r->Center().data()).dot(coef_l)) -
-                       (u_r + cell_r->Functions(cell_r->Center().data()).dot(coef_r))) * 0.5;
+      Real dr = Abs((rl + cell_l->Functions(e->Center().data()).dot(coef_l)) -
+                    (rr + cell_r->Functions(e->Center().data()).dot(coef_r)));
+      dr_sum[i] += dr * 0.5;
+      dr_sum[j] += dr * 0.5;
     }
   }
 }
@@ -215,7 +231,7 @@ void SpaceDiscr<kOrder, Physics>::Limiter(const Mesh<kOrder>& mesh)
   for (int i = 0; i < mesh.NumLocalCells(); ++i) {
     auto cell = mesh.cell[i].get();
     Real h_k = Pow(cell->Measure(), (kOrder+1)*0.25);
-    Real indicator = du_sum[i] / (cell->nCorner() * h_k * u_max[i]);
+    Real indicator = dr_sum[i] / (cell->nCorner() * h_k * r_max[i]);
     if (indicator > 1) LimitTroubleCell(mesh, cell);
   }
   PetscSFBcastBegin(sfCoef, MPIU_REAL, coefs.data(), coefs.data(), MPI_REPLACE);
@@ -229,40 +245,49 @@ void SpaceDiscr<kOrder, Physics>::LimitTroubleCell(const Mesh<kOrder>& mesh,
   const auto& edge_csr = mesh.edge_csr;
   const auto& adjc_csr = mesh.adjc_csr;
   int i = cell->I();
-  const auto& cv_l = conVar.col(i);
-  Eigen::Array<Real,nEqual,1> d1_max = cv_l;
-  Eigen::Array<Real,nEqual,1> d1_min = cv_l;
+  const auto& ruvp_l = priVar.col(i);
+  Eigen::Array<Real,nEqual,1> d1_max = ruvp_l;
+  Eigen::Array<Real,nEqual,1> d1_min = ruvp_l;
   for (int ec = offset[i]; ec < offset[i+1]; ++ec) {
     int j = adjc_csr[ec];
     if (j >= 0) {
-      const auto& cv_r = conVar.col(j);
-      d1_max = d1_max.max(cv_r.array());
-      d1_min = d1_min.min(cv_r.array());
+      const auto& ruvp_r = priVar.col(j);
+      d1_max = d1_max.max(ruvp_r.array());
+      d1_min = d1_min.min(ruvp_r.array());
     }
   }
-  d1_max -= cv_l.array(); d1_min -= cv_l.array();
-  const auto& coef_l = coefs.block<nCoef, nEqual>(0, i*nEqual);
-  Real eps2 = 0 * Pow(cell->Measure(), 1.5);
+  d1_max -= ruvp_l.array(); d1_min -= ruvp_l.array();
+  const auto& coef_l = coefs.block<2, nEqual>(0, i*nEqual);
+  Real eps2 = 1 * Pow(cell->Measure(), 1.5);
   Eigen::Matrix<Real,nEqual,1> factor = Eigen::Matrix<Real,nEqual,1>::Ones();
   for (int ec = offset[i]; ec < offset[i+1]; ++ec) {
-    auto edge = mesh.edge[edge_csr[ec]].get();
-    int n_points = edge->nQuad;
-    Node* points = new Node[n_points]; edge->Quadrature(n_points, points);
-    for (int k = 0; k < n_points; ++k) {
-      auto d2 = cell->Functions(points[k].data()).transpose() * coef_l;
-      for (int m = 0; m < nEqual; ++m) {
-        if (d2(m) > d1_max(m)) {
-          Real venkat = Venkat(d1_max(m), d2, eps2);
-          factor(m) = min(factor(m), venkat);
-        } else if (d2(m) < d1_min(m)) {
-          Real venkat = Venkat(d1_min(m), d2, eps2);
-          factor(m) = min(factor(m), venkat);
-        }
+    auto d2 = cell->Functions(mesh.edge[edge_csr[ec]]->Center().data()).head(2).transpose() * coef_l;
+    for (int m = 0; m < nEqual; ++m) {
+      if (d2(m) > EPS) {
+        Real venkat = Venkat(d1_max(m), d2(m), eps2);
+        factor(m) = min(factor(m), venkat);
+      } else if (d2(m) < -EPS) {
+        Real venkat = Venkat(d1_min(m), d2(m), eps2);
+        factor(m) = min(factor(m), venkat);
       }
     }
-    delete[] points;
   }
-  for (int m = 0; m < nEqual; ++m) { coefs.col(i*nEqual+m) *= factor(m); }
+  for (int m = 0; m < nEqual; ++m) {
+    coefs.col(i*nEqual+m).head<2>() *= factor(m);
+    coefs.col(i*nEqual+m).tail<nCoef-2>().setZero();
+  }
+}
+
+template <int kOrder, class Physics>
+void SpaceDiscr<kOrder, Physics>::PositivePreserve()
+{
+  for (int i = 0; i < priVar.cols(); ++i) {
+    const auto& rho_uv_p = priVar.col(i);
+    if (p_min[i] <= 1.0) {
+      // coefs.col(i*nEqual+3) *= 0;
+      coefs.block<nCoef, nEqual>(0, i*nEqual) *= 0.0;
+    }
+  }
 }
 
 }  // cfd

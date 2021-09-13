@@ -14,7 +14,6 @@
 #define INCLUDE_SOLVER_HPP_
 
 #include "defs.h"
-#include "physModel.hpp"
 #include "edgeTools.hpp"
 #include "spaceDiscr.hpp"
 #include "timeDiscr.hpp"
@@ -74,10 +73,15 @@ class Solver
     timeStepper.SetOutputDirModelName(output_dir + user->model);
   }
   void InitializeSolution(function<void(int dim, const Real*, int, Real*)>func) {
-    int nCell = mesh.CountCells(), Nf = nEqual;
+    int nCell = mesh.CountCells();
     spaceDiscr.conVar.resize(nEqual, nCell);
+    spaceDiscr.priVar.resize(nEqual, nCell);
     for (int i = 0; i < nCell; ++i) {
-      func(2, mesh.cell[i]->Center().data(), Nf, spaceDiscr.conVar.data()+i*Nf);
+      func(2, mesh.cell[i]->Center().data(), nEqual, spaceDiscr.priVar.data()+i*nEqual);
+    }
+    for (int i = 0; i < nCell; ++i) {
+      Physics::PrimToCons(spaceDiscr.priVar.data()+i*nEqual,
+                          spaceDiscr.conVar.data()+i*nEqual);
     }
   }
   void Calculate() {
@@ -140,27 +144,39 @@ class Solver
     }
   }
   static constexpr void UpdateCoefs(const Array& conVar, Solver<kOrder, Physics>* solver) {
+    // Update priVar
+    solver->spaceDiscr.UpdatePriVar(conVar);
     // Update b_col
-    solver->spaceDiscr.UpdateBcols(solver->mesh, conVar);
+    solver->spaceDiscr.UpdateBcols(solver->mesh);
     // Update coefs
     solver->spaceDiscr.UpdateCoefs(solver->mesh);
     // Detect trouble cells
     solver->spaceDiscr.InitLimiter(solver->mesh, solver->edgeGroup);
     solver->spaceDiscr.Limiter(solver->mesh);
+    if (Physics::type == Equations::Euler) {
+      solver->spaceDiscr.PositivePreserve();
+    }
   }
   static constexpr auto Output = [](DM dm, const Array& conVar, const char* filename,
-                                          PetscViewer viewer)
+                                    PetscViewer viewer)
   {
-    int nCell; DMPlexGetDepthStratum(dm, 2, nullptr, &nCell);
     Vec pv_local, pv_global;
     PetscViewerFileSetName(viewer, filename);
     DMGetGlobalVector(dm, &pv_global);
     DMGetLocalVector(dm, &pv_local);
     PetscObjectSetName((PetscObject) pv_global, "");
-    if (nEqual == 1) {
+    if (Physics::type == Equations::Linear) {
       VecPlaceArray(pv_local, conVar.data());
       DMLocalToGlobal(dm, pv_local, INSERT_VALUES, pv_global);
       VecResetArray(pv_local);
+    } else if (Physics::type == Equations::Euler) {
+      Real* priVar;
+      VecGetArray(pv_local, &priVar);
+      for (int i = 0; i < conVar.size(); i+=nEqual) {
+        Physics::ConsToPrim(conVar.data()+i, priVar+i);
+      }
+      VecRestoreArray(pv_local, &priVar);
+      DMLocalToGlobal(dm, pv_local, INSERT_VALUES, pv_global);
     }
     DMRestoreLocalVector(dm, &pv_local);
     VecView(pv_global, viewer);
@@ -173,7 +189,9 @@ class Solver
     // Update Coefs for each cell
     UpdateCoefs(conVar, solver);
     // Solving Riemann flux and update rhs
-    for (auto& [type, bd] : solver->edgeGroup) { bd->UpdateRHS(conVar, solver->spaceDiscr.coefs, rhs); }
+    for (auto& [type, bd] : solver->edgeGroup) {
+      bd->UpdateRHS(solver->spaceDiscr.priVar, solver->spaceDiscr.coefs, rhs);
+    }
     for (auto& c : solver->mesh.cell) {
       Real vol = c->Measure(); rhs.col(c->I()) /= vol;
     }
