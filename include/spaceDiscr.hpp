@@ -104,7 +104,6 @@ class SpaceDiscr
         Real dp[kOrder+1];
         if (mesh.adjc_csr[j] >= 0) { // Interiod, periodic boundary
           a_mat += edgeGroups.at(0)->CalculateMat(e, c, c);
-        } else {
         }
         e->Integrate([&](const Node& node) {
           return GetVecAt(*c, node.data(), distance); }, &(block[j].b_sub));
@@ -153,7 +152,6 @@ class SpaceDiscr
         for (int j = offset[i]; j < offset[i+1]; ++j) {
           if (adjc_csr[j] >= 0) {
             temp += block[j].C_mat * coefs.block<nCoef, nEqual>(0, adjc_csr[j]*nEqual);
-          } else {
           }
         }
         temp += b_col[i];
@@ -168,12 +166,11 @@ class SpaceDiscr
   }
   void InitLimiter(const Mesh<kOrder>& mesh, const EdgeGroups& edgeGroups);
   void Limiter(const Mesh<kOrder>& mesh);
-  void PositivePreserve();
+  void PositivePreserve(const Mesh<kOrder>& mesh);
  
  private:
   vector<Real> dr_sum;
   vector<Real> r_max;
-  vector<Real> p_min;
   static Column GetVecAt(const Cell<kOrder>& a, const Real* coord, Real distance) {
     return a.Functions(coord) / distance;
   }
@@ -185,7 +182,6 @@ void SpaceDiscr<kOrder, Physics>::InitLimiter(const Mesh<kOrder>& mesh,
                                               const EdgeGroups& edgeGroups)
 {
   r_max.assign(mesh.CountCells(), EPS);
-  p_min.assign(mesh.CountCells(), INF);
   dr_sum.assign(mesh.CountCells(), 0.0);
   // For each interior edge
   for (const auto& e : edgeGroups.at(0)->edge) {
@@ -195,10 +191,6 @@ void SpaceDiscr<kOrder, Physics>::InitLimiter(const Mesh<kOrder>& mesh,
     Real rl = priVar(0,i), rr = priVar(0,j);
     Real rMax = max(rl, rr);
     r_max[i] = max(rMax, r_max[i]), r_max[j] = max(rMax, r_max[j]);
-    // min p of both sides
-    Real pMin = min(priVar(3,i), priVar(3,j));
-    p_min[i] = min(pMin, p_min[i]), p_min[j] = min(pMin, p_min[j]);
-
     const auto& coef_l = coefs.col(i*nEqual), coef_r = coefs.col(j*nEqual);
     Real dr = Abs((rl + cell_l->Functions(e->Center().data()).dot(coef_l)) -
                   (rr + cell_r->Functions(e->Center().data()).dot(coef_r)));
@@ -214,9 +206,6 @@ void SpaceDiscr<kOrder, Physics>::InitLimiter(const Mesh<kOrder>& mesh,
       Real rl = priVar(0,i), rr = priVar(0,j);
       Real rMax = max(rl, rr);
       r_max[i] = max(rMax, r_max[i]), r_max[j] = max(rMax, r_max[j]);
-      // min p of both sides
-      Real pMin = min(priVar(3,i), priVar(3,j));
-      p_min[i] = min(pMin, p_min[i]), p_min[j] = min(pMin, p_min[j]);
       const auto& coef_l = coefs.col(i*nEqual), coef_r = coefs.col(j*nEqual);
       Real dr = Abs((rl + cell_l->Functions(e->Center().data()).dot(coef_l)) -
                     (rr + cell_r->Functions(e->Center().data()).dot(coef_r)));
@@ -279,13 +268,26 @@ void SpaceDiscr<kOrder, Physics>::LimitTroubleCell(const Mesh<kOrder>& mesh,
 }
 
 template <int kOrder, class Physics>
-void SpaceDiscr<kOrder, Physics>::PositivePreserve()
+void SpaceDiscr<kOrder, Physics>::PositivePreserve(const Mesh<kOrder>& mesh)
 {
-  for (int i = 0; i < priVar.cols(); ++i) {
-    const auto& rho_uv_p = priVar.col(i);
-    if (p_min[i] <= 1.0) {
-      // coefs.col(i*nEqual+3) *= 0;
-      coefs.block<nCoef, nEqual>(0, i*nEqual) *= 0.0;
+  for (int i = 0; i < mesh.CountCells(); ++i) {
+    auto cell = mesh.cell[i].get();
+    Node dr{1.0/cell->DxInv(), 1.0/cell->DyInv()};
+    dr += cell->Center();
+    auto functions = cell->Functions(dr.data());
+    // Limit density
+    Real u = priVar(0,i);
+    Real du = functions.dot(coefs.col(i*nEqual).array().abs().matrix());
+    if (u - du < 0) {
+      Real factor = u / du;
+      coefs.col(i*nEqual) *= factor;
+    }
+    // Limit pressure
+    u = priVar(3,i);
+    du = functions.dot(coefs.col(i*nEqual+3).array().abs().matrix());
+    if (u - du < 0) {
+      Real factor = u / du;
+      coefs.col(i*nEqual+3) *= factor;
     }
   }
 }

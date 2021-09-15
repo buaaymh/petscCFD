@@ -100,9 +100,6 @@ Euler::Flux Euler::GetFlux(const Real* normal, const Real* pv_l, const Real* pv_
   const Real& pr   = pv_r[3];
   Real        hr   = Gam_GamM1*pr/rr + 0.5*(ur*ur+vr*vr);
 
-  if (rl < 0 || rr < 0) { cout << "Rho_l : " << rl << " Rho_r : " << rr << endl; }
-  if (pl < 0 || pr < 0) { cout << "P_l : "   << pl << " P_r : "   << pr << endl; }
-  
   // left and right V*n
   Real qsl = ul*normal[0] + vl*normal[1];
   Real qsr = ur*normal[0] + vr*normal[1];

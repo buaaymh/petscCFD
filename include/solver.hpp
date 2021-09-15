@@ -154,7 +154,7 @@ class Solver
     solver->spaceDiscr.InitLimiter(solver->mesh, solver->edgeGroup);
     solver->spaceDiscr.Limiter(solver->mesh);
     if (Physics::type == Equations::Euler) {
-      solver->spaceDiscr.PositivePreserve();
+      solver->spaceDiscr.PositivePreserve(solver->mesh);
     }
   }
   static constexpr auto Output = [](DM dm, const Array& conVar, const char* filename,
