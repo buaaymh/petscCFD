@@ -43,7 +43,7 @@ struct Group {
     }, &mat);
     return mat;
   }
-  virtual void UpdateRHS(const Array& priVar, const Array& coefs, Array& rhs) const {
+  virtual void UpdateRHS(Real t, const Array& priVar, const Array& coefs, Array& rhs) const {
     for (auto& e : edge) {
       auto flux = InteriorFlux(e, priVar, coefs, rhs);
       rhs.col(e->left->I())  -= flux;
@@ -128,7 +128,7 @@ struct Periodic : public Group<kOrder,Physics> {
     for (int i = 0; i < bdL.size(); ++i) { MatchEdges(bdL[i], bdR[i]); }
     for (int i = 0; i < bdB.size(); ++i) { MatchEdges(bdB[i], bdT[i]); }
   }
-  void UpdateRHS(const Array& priVar, const Array& coefs, Array& rhs) const override {
+  void UpdateRHS(Real t, const Array& priVar, const Array& coefs, Array& rhs) const override {
     for (auto& e : bdL) {
       auto flux = Base::InteriorFlux(e, priVar, coefs, rhs);
       rhs.col(e->left->I())  -= flux;
@@ -167,7 +167,7 @@ struct OutFlow : public Group<kOrder,Physics> {
   static constexpr int nCoef = (kOrder+1)*(kOrder+2)/2-1; /**< Dofs -1 */
   static constexpr int nEqual = Physics::nEqual;
   // Functions:
-  void UpdateRHS(const Array& priVar, const Array& coefs, Array& rhs) const override {
+  void UpdateRHS(Real t, const Array& priVar, const Array& coefs, Array& rhs) const override {
     for (auto& e : Group<kOrder,Physics>::edge) {
       auto cell = e->left; int i = cell->I();
       Flux flux_c = Flux::Zero();
@@ -187,19 +187,24 @@ struct InFlow : public Group<kOrder,Physics> {
   // Constants:
   static constexpr int nCoef = (kOrder+1)*(kOrder+2)/2-1; /**< Dofs -1 */
   // Types:
+  using Flux = typename Physics::Flux;
+  using State = typename Physics::State;
   using Base = Group<kOrder,Physics>;
   using Matrix = Eigen::Matrix<Real, nCoef, nCoef>;
   // Functions:
   InFlow(function<void(Real, const Real*, Real*)>func) : Base(), func_(func) {}
-  Matrix CalculateMat(const Edge<kOrder>* e, const Cell<kOrder>* left, 
-                      const Cell<kOrder>* right) const override {
-    Matrix mat = Matrix::Zero();
-    Real normal[2] = {e->Nx(), e->Ny()}; Real distance = e->Distance();
-    Real dp[kOrder+1]; WithoutDerivative(kOrder, distance, dp);
-    e->Integrate([&](const Node& node) {
-      return Base::GetMatAt(node.data(), *left, *right, normal, dp);
-    }, &mat);
-    return mat;
+  void UpdateRHS(Real t, const Array& priVar, const Array& coefs, Array& rhs) const override {
+    for (auto& e : Group<kOrder,Physics>::edge) {
+      auto cell = e->left; int i = cell->I();
+      Flux flux_c = Flux::Zero();
+      const Real normal[2] = {e->Nx(), e->Ny()};
+      e->Integrate([&](const Node& p){
+        State U = State::Zero();
+        func_(t, p.data(), U.data());
+        return Physics::GetFlux(normal, U.data());
+      }, &flux_c);
+      rhs.col(i) -= flux_c;
+    }
   }
   function<void(Real, const Real*, Real*)> func_;
 };
@@ -241,17 +246,7 @@ struct InviscWall : public Group<kOrder,Physics> {
   using Flux = typename Physics::Flux;
   using State = typename Physics::State;
   // Functions:
-  Matrix CalculateMat(const Edge<kOrder>* e, const Cell<kOrder>* left, 
-                      const Cell<kOrder>* right) const override {
-    Matrix mat = Matrix::Zero();
-    Real normal[2] = {e->Nx(), e->Ny()}; Real distance = e->Distance();
-    Real dp[kOrder+1]; WithoutDerivative(kOrder, distance, dp);
-    e->Integrate([&](const Node& node) {
-      return Base::GetMatAt(node.data(), *left, *right, normal, dp);
-    }, &mat);
-    return mat;
-  }
-  void UpdateRHS(const Array& priVar, const Array& coefs, Array& rhs) const override {
+  void UpdateRHS(Real t, const Array& priVar, const Array& coefs, Array& rhs) const override {
     for (auto& e : Group<kOrder,Physics>::edge) {
       auto cell = e->left; int i = cell->I();
       Flux flux_c = Flux::Zero();

@@ -190,7 +190,7 @@ class Solver
     UpdateCoefs(conVar, solver);
     // Solving Riemann flux and update rhs
     for (auto& [type, bd] : solver->edgeGroup) {
-      bd->UpdateRHS(solver->spaceDiscr.priVar, solver->spaceDiscr.coefs, rhs);
+      bd->UpdateRHS(t, solver->spaceDiscr.priVar, solver->spaceDiscr.coefs, rhs);
     }
     for (auto& c : solver->mesh.cell) {
       Real vol = c->Measure(); rhs.col(c->I()) /= vol;
