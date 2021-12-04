@@ -275,19 +275,28 @@ void SpaceDiscr<kOrder, Physics>::PositivePreserve(const Mesh<kOrder>& mesh)
     Node dr{1.0/cell->DxInv(), 1.0/cell->DyInv()};
     dr += cell->Center();
     auto functions = cell->Functions(dr.data());
+    auto functions2 = cell->Functions(cell->Center().data());
     // Limit density
     Real u = priVar(0,i);
     Real du = functions.dot(coefs.col(i*nEqual).array().abs().matrix());
-    if (u - du < 0) {
+    Real du2 = functions2.dot(coefs.col(i*nEqual).array().abs().matrix());
+    if (u - du < 0 || u + du2 < 0) {
       Real factor = u / du;
-      coefs.col(i*nEqual) *= factor;
+      coefs.col(i*nEqual) *= 0.0;
+      coefs.col(i*nEqual+1) *= 0.0;
+      coefs.col(i*nEqual+2) *= 0.0;
+      coefs.col(i*nEqual+3) *= 0.0;
     }
     // Limit pressure
     u = priVar(3,i);
     du = functions.dot(coefs.col(i*nEqual+3).array().abs().matrix());
-    if (u - du < 0) {
+    du2 = functions2.dot(coefs.col(i*nEqual+3).array().abs().matrix());
+    if (u - du < 0 || u + du2 < 0) {
       Real factor = u / du;
-      coefs.col(i*nEqual+3) *= factor;
+      coefs.col(i*nEqual) *= 0.0;
+      coefs.col(i*nEqual+1) *= 0.0;
+      coefs.col(i*nEqual+2) *= 0.0;
+      coefs.col(i*nEqual+3) *= 0.0;
     }
   }
 }
