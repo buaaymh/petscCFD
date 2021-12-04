@@ -252,8 +252,9 @@ struct InviscWall : public Group<kOrder,Physics> {
       Flux flux_c = Flux::Zero();
       const Real normal[2] = {e->Nx(), e->Ny()};
       e->Integrate([&](const Node& p){
-        State U = priVar.col(i) + coefs.block<nCoef, nEqual>(0, i*nEqual).transpose() *
-                  cell->Functions(p.data());
+        // State U = priVar.col(i) + coefs.block<nCoef, nEqual>(0, i*nEqual).transpose() *
+        //           cell->Functions(p.data());
+        State U = priVar.col(i);
         return Physics::GetWallFlux(normal, U.data());
       }, &flux_c);
       rhs.col(i) -= flux_c;
