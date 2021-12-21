@@ -146,7 +146,7 @@ class SpaceDiscr
   void UpdateCoefs(const Mesh<kOrder>& mesh) {
     const auto& offset = mesh.offset;
     const auto& adjc_csr = mesh.adjc_csr;
-    for (int k = 0; k < 11; ++k) {
+    for (int k = 0; k < 7; ++k) {
       for (int i = 0; i < b_col.size(); ++i) {
         EqualCol temp = EqualCol::Zero();
         for (int j = offset[i]; j < offset[i+1]; ++j) {

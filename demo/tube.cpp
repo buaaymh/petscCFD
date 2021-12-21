@@ -20,24 +20,40 @@
 //=============================================================================
 static char help[] = "2D Finite Volume Example.\n";
 
+#include "euler.hpp"
 #include "solver.hpp"
 
-#define SGLPREC
+// #define SGLPREC
 
 namespace cfd {
 
 struct User {
   int           order = 3;
-  string        filename = "tube_100.msh";
-  string        model = "tube";
-  int           n_step = 100, output_interval = 1;
-  Real          cfl = 1.0, tEnd = 0.5;
+  string        filename = "blast_200.msh";
+  string        model = "blast";
+  int           n_step = 500, output_interval = 2;
+  Real          cfl = 1.0, tEnd = 0.038;
 
   static constexpr auto InitFunc = [](int dim, const Real* coord, int Nf, Real* u) {
-    for (int i = 0; i < Nf; i++) {
-      u[i] = Sin(2 * coord[0] * PI);
-      // if (coord[0] < 0.5) u[i] = 0;
-      // else u[i] = 1;
+    /***** Lax *****/
+    // if (coord[0] < 0.5) {
+    //   u[0] = 0.445; u[1] = 0.698; u[2] = 0.0; u[3] = 3.528;
+    // } else {
+    //   u[0] = 0.5;   u[1] = 0.0;   u[2] = 0.0; u[3] = 0.571;
+    // }
+    /***** Sod *****/
+    // if (coord[0] < 0.5) {
+    //   u[0] = 1.0;   u[1] = 0.0; u[2] = 0.0; u[3] = 1.0;
+    // } else {
+    //   u[0] = 0.125; u[1] = 0.0; u[2] = 0.0; u[3] = 0.1;
+    // }
+    /***** Blast *****/
+    if (coord[0] < 0.1) {
+      u[0] = 1.0; u[1] = 0.0; u[2] = 0.0; u[3] = 1000.0;
+    } else if (coord[0] > 0.9) {
+      u[0] = 1.0; u[1] = 0.0; u[2] = 0.0; u[3] = 100.0;
+    } else {
+      u[0] = 1.0; u[1] = 0.0; u[2] = 0.0; u[3] = 0.01;
     }
   };
 };
@@ -54,7 +70,7 @@ class Advection {
   void Run()
   {
     const std::string dir{TEST_DATA_DIR};
-    auto solver = Solver<kOrder, Linear>();
+    auto solver = Solver<kOrder, Euler>();
     solver.mesh.ReadMeshFile(dir + user_->filename);
     solver.SetupDataLayout();
     solver.SetBoundaryConditions(&bc_);

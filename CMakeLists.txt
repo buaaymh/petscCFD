@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.14)
 set(CMAKE_C_COMPILER "/usr/local/bin/gcc-11")
 set(CMAKE_CXX_COMPILER "/usr/local/bin/g++-11")
-set(CMAKE_BUILD_TYPE "Debug")
+set(CMAKE_BUILD_TYPE "Release")
 project(buaaCFD)
 set(CMAKE_CXX_STANDARD 17)
 

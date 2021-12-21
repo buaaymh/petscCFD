@@ -29,9 +29,9 @@ namespace cfd {
 
 struct User {
   int           order = 3;
-  string        filename = "stage_160.msh";
+  string        filename = "stage_80.msh";
   string        model = "stage";
-  int           n_step = 6000, output_interval = 60;
+  int           n_step = 3000, output_interval = 30;
   Real          cfl = 1.0, tEnd = 4;
 
   static constexpr auto InitFunc = [](int dim, const Real* coord, int Nf, Real* u) {
